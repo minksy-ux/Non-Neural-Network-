@@ -23,3 +23,28 @@ class RetrievalAugmentedMarkov(CharacterMarkovGenerator):
             max_length=max_length,
             stop_at_punctuation=stop_at_punctuation,
         )
+
+    def generate_with_evidence(
+        self,
+        prompt: str,
+        verified_facts=None,
+        style_hints=None,
+        max_length: int = 600,
+        top_k: int = 3,
+        stop_at_punctuation: bool = True,
+    ) -> str:
+        verified_facts = verified_facts or []
+        style_hints = style_hints or self.memory.retrieve(prompt, top_k=top_k)
+
+        evidence_block = " ".join(fact.get("sentence", "") for fact in verified_facts[:top_k]).strip()
+        style_block = " ".join(style_hints[:top_k]).strip()
+        structured_prompt = (
+            f"Verified facts: {evidence_block[:260]}\n"
+            f"Style memory: {style_block[:260]}\n"
+            f"Prompt: {prompt}\n"
+        )
+        return super().generate(
+            prompt=structured_prompt,
+            max_length=max_length,
+            stop_at_punctuation=stop_at_punctuation,
+        )

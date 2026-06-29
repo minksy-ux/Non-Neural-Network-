@@ -7,6 +7,9 @@ Pure non-neural machine learning toolkit centered on a spectral graph-based clas
 Now includes a non-neural hybrid agent stack with retrieval memory, symbolic reasoning,
 and character-level generation.
 
+An opt-in neural-symbolic hybrid is also available for users who want torch embeddings
+plus graph-based symbolic control while keeping the reasoning path inspectable.
+
 ## Project Structure
 
 ```
@@ -44,6 +47,33 @@ NonNeuralX/
 - SpectralMemory
 - SymbolicReasoner
 - NonNeuralAgent
+
+## Optional Neural-Symbolic Hybrid
+
+The package now also includes a lightweight hybrid stack that uses:
+
+- `TorchEmbeddingEncoder` for neural input embeddings
+- `GraphSpectralMemory` for NetworkX Laplacian retrieval
+- `NetworkXSymbolicReasoner` for verified graph reasoning and consistency checks
+- `InterpretableDecisionEnsemble` for torch + manual tree + k-NN routing
+- `NeuralSymbolicHybridAgent` for end-to-end orchestration
+
+```python
+from non_neuralx import NeuralSymbolicHybridAgent
+
+corpus = (
+	"Symbolic reasoning supports transparent inference. "
+	"Spectral memory retrieves grounded evidence. "
+	"Markov generation follows stylistic context. "
+) * 20
+
+agent = NeuralSymbolicHybridAgent()
+agent.learn(corpus)
+
+result = agent.think("Explain why symbolic reasoning supports transparent inference.")
+print(result["route"])
+print(result["answer"])
+```
 
 ## Installation
 

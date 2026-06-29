@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 
 import numpy as np
 
@@ -35,10 +36,17 @@ class SpectralMemory:
         self.embeddings = np.vstack([self._chunk_vector(chunk) for chunk in self.chunks])
 
     def retrieve(self, query: str, top_k: int = 3):
+        return [item["chunk"] for item in self.retrieve_scored(query, top_k=top_k)]
+
+    def retrieve_scored(self, query: str, top_k: int = 3):
         if self.embeddings is None or len(self.chunks) == 0:
             return []
 
         qvec = self._chunk_vector(query)
         sims = self.embeddings @ qvec
         top_idx = np.argsort(sims)[-top_k:][::-1]
-        return [self.chunks[i] for i in top_idx]
+        return [{"chunk": self.chunks[i], "score": float(sims[i])} for i in top_idx]
+
+    def top_keywords(self, top_k: int = 8):
+        words = re.findall(r"\b\w{4,}\b", " ".join(self.chunks).lower())
+        return [word for word, _ in Counter(words).most_common(top_k)]

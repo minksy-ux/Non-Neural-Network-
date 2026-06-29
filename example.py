@@ -15,6 +15,12 @@ if __name__ == "__main__":
     result = agent.think("Why are non-neural approaches still useful?")
     print("Answer:\n")
     print(result["answer"])
+    print("\nRoute:", result["routing"]["route"])
+    print("Moderation:", result["moderation"]["label"])
+    if result["verified_facts"]:
+        print("\nVerified facts:")
+        for fact in result["verified_facts"][:3]:
+            print(f"- {fact['sentence']}")
     print("\nReasoning trace:")
     for step in result["reasoning_trace"]:
         print(f"- {step}")

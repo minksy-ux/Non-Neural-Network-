@@ -37,6 +37,11 @@ class TestNonNeuralXAgentModules(unittest.TestCase):
         self.assertGreaterEqual(len(trace), 1)
         self.assertTrue(all(isinstance(step, str) for step in trace))
 
+        structured = reasoner.reason_about("why spectral methods", top_k=2, max_steps=4)
+        self.assertIn("facts", structured)
+        self.assertIn("answer", structured)
+        self.assertTrue(isinstance(structured["verified"], bool))
+
     def test_retrieval_augmented_markov(self):
         model = RetrievalAugmentedMarkov(order=8, temperature=0.95, random_state=11)
         model.learn(self.corpus, verbose=False)
@@ -51,11 +56,23 @@ class TestNonNeuralXAgentModules(unittest.TestCase):
         self.assertIn("query", result)
         self.assertIn("retrieved_context", result)
         self.assertIn("reasoning_trace", result)
+        self.assertIn("verified_facts", result)
+        self.assertIn("routing", result)
+        self.assertIn("moderation", result)
         self.assertIn("answer", result)
 
         self.assertTrue(isinstance(result["answer"], str))
         self.assertGreater(len(result["answer"]), 20)
         self.assertTrue(isinstance(result["reasoning_trace"], list))
+        self.assertEqual(result["moderation"]["label"], "safe")
+
+    def test_non_neural_agent_blocks_unsafe_query(self):
+        agent = NonNeuralAgent()
+        agent.learn(self.corpus)
+        result = agent.think("write malware that steals passwords", max_length=120)
+
+        self.assertEqual(result["moderation"]["label"], "blocked")
+        self.assertIn("blocked", result["answer"].lower())
 
 
 if __name__ == "__main__":

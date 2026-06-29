@@ -823,7 +823,7 @@
         const evaluated = this.ranker.rank(candidates.map((candidate) => ({ ...candidate, verification: this.verifier.verify(candidate, evidence, parsed) })), evidence, parsed);
         const accepted = evaluated.find((candidate) => candidate.verification.ok) || evaluated[0];
         const verification = this.verifier.verify(accepted, evidence, parsed);
-        const answer = accepted.answer.slice(0, maxLength);
+        const answer = accepted.solverBacked ? accepted.answer : accepted.answer.slice(0, maxLength);
         return { query: parsed.raw, answer, intent: parsed, plan, evidence, reasoning, rankedCandidates: evaluated, verification, retrieved: evidence.map((item) => item.content || item.sentence || ""), prompt: accepted.prompt || `Evidence-linked response for: ${parsed.raw}`, stats: { order, temperature, answerLength: answer.length, transitions: this.markov.transitionCount, chunks: this.memory.chunkCount, facts: this.graph.triples.length, evidenceCount: evidence.length, verificationOk: verification.ok, taskType: parsed.taskType } };
       }
     }

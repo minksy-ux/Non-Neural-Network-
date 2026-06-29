@@ -859,7 +859,7 @@ export class HybridSymbolicSystem {
     const accepted = evaluated.find((candidate) => candidate.verification.ok) || evaluated[0];
     const verification = this.verifier.verify(accepted, evidence, parsed);
 
-    const answer = accepted.answer.slice(0, maxLength);
+    const answer = accepted.solverBacked ? accepted.answer : accepted.answer.slice(0, maxLength);
 
     return {
       query: parsed.raw,

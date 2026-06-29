@@ -51,11 +51,13 @@ class DecisionTree:
 
     def _build(self, X: np.ndarray, y: np.ndarray, depth: int = 0) -> dict:
         if depth >= self.max_depth or len(np.unique(y)) == 1 or len(y) < self.min_samples_split:
-            return {"leaf": True, "class": Counter(y).most_common(1)[0][0]}
+            counts = Counter(y)
+            return {"leaf": True, "class": counts.most_common(1)[0][0], "counts": dict(counts)}
 
         feature, threshold, gain = self._find_best_split(X, y)
         if feature is None or gain <= 0:
-            return {"leaf": True, "class": Counter(y).most_common(1)[0][0]}
+            counts = Counter(y)
+            return {"leaf": True, "class": counts.most_common(1)[0][0], "counts": dict(counts)}
 
         left_mask = X[:, feature] <= threshold
         return {
@@ -67,7 +69,9 @@ class DecisionTree:
         }
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "DecisionTree":
-        self.tree = self._build(np.asarray(X), np.asarray(y))
+        y = np.asarray(y)
+        self.classes_ = np.unique(y)
+        self.tree = self._build(np.asarray(X), y)
         return self
 
     def _predict_one(self, x: np.ndarray, node: dict):
@@ -82,6 +86,42 @@ class DecisionTree:
             raise RuntimeError("DecisionTree is not fitted.")
         X = np.asarray(X)
         return np.array([self._predict_one(x, self.tree) for x in X])
+
+    def _predict_leaf(self, x: np.ndarray, node: dict):
+        if node["leaf"]:
+            return node
+        if x[node["feature"]] <= node["threshold"]:
+            return self._predict_leaf(x, node["left"])
+        return self._predict_leaf(x, node["right"])
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        if self.tree is None or not hasattr(self, "classes_"):
+            raise RuntimeError("DecisionTree is not fitted.")
+
+        X = np.asarray(X)
+        probs = []
+        for x in X:
+            leaf = self._predict_leaf(x, self.tree)
+            counts = np.array([leaf.get("counts", {}).get(cls, 0) for cls in self.classes_], dtype=float)
+            total = counts.sum() + 1e-12
+            probs.append(counts / total)
+        return np.vstack(probs)
+
+    def explain_path(self, x: np.ndarray):
+        if self.tree is None:
+            raise RuntimeError("DecisionTree is not fitted.")
+
+        x = np.asarray(x)
+        node = self.tree
+        path = []
+        while not node["leaf"]:
+            feature = node["feature"]
+            threshold = node["threshold"]
+            branch = "left" if x[feature] <= threshold else "right"
+            path.append(f"x[{feature}] {'<=' if branch == 'left' else '>'} {threshold:.3f}")
+            node = node[branch]
+        path.append(f"predict={node['class']}")
+        return path
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         return float(np.mean(self.predict(X) == np.asarray(y)))
