@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NonNeuralX Offline Playground</title>
+  <style>
+    :root {
+      --bg: #f7f5ef;
+      --panel: #fffdf8;
+      --ink: #1e2a32;
+      --accent: #d06a2d;
+      --accent-2: #2a8f9d;
+      --line: #e7dfcf;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 0 0, #fff7dd 0, var(--bg) 45%);
+    }
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 14px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.2rem; letter-spacing: 0.02em; }
+    h2 { margin: 0 0 6px; font-size: 1rem; }
+    label { font-size: 0.85rem; display: block; margin: 10px 0 6px; }
+    select, input, textarea, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    button {
+      cursor: pointer;
+      background: linear-gradient(90deg, var(--accent), #e88a4f);
+      color: white;
+      border: none;
+      margin-top: 10px;
+    }
+    button.secondary { background: linear-gradient(90deg, var(--accent-2), #57b4c1); }
+    .chat { display: flex; flex-direction: column; gap: 10px; min-height: 70vh; }
+    .bubble {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+      animation: fadeIn 180ms ease;
+    }
+    .user { border-left: 4px solid var(--accent-2); }
+    .agent { border-left: 4px solid var(--accent); }
+    .meta { font-size: 0.78rem; opacity: 0.75; margin-top: 6px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row.actions { grid-template-columns: 1fr 1fr 1fr; }
+    .file-input { display: none; }
+    .inspector {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+    .inspector .statline { font-size: 0.84rem; margin: 2px 0; }
+    .inspector ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .inspector li { margin: 3px 0; font-size: 0.84rem; line-height: 1.3; }
+    .inspector .context-box {
+      margin-top: 8px;
+      padding: 8px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      background: #fff;
+      max-height: 160px;
+      overflow: auto;
+      font-size: 0.84rem;
+    }
+    .inspector-chip {
+      width: 100%;
+      text-align: left;
+      padding: 7px 9px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f8f4ea;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .inspector-chip:hover,
+    .inspector-chip:focus-visible { background: #fff4df; outline: none; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
+    @media (max-width: 900px) {
+      .wrap { grid-template-columns: 1fr; }
+      .row.actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="panel">
+      <h1>NonNeuralX Offline Playground</h1>
+      <p style="margin:0 0 8px; font-size: 0.9rem;">
+        Character Markov + hierarchical retrieval memory. No neural model.
+      </p>
+
+      <label for="corpusSelect">Seed corpus</label>
+      <select id="corpusSelect"></select>
+
+      <label for="seedCorpus">Seed corpus editor</label>
+      <textarea id="seedCorpus" placeholder="Loaded preset corpus will appear here..."></textarea>
+
+      <label for="customCorpus">Custom corpus (optional)</label>
+      <textarea id="customCorpus" placeholder="Paste your own text corpus..."></textarea>
+
+      <div class="row">
+        <div>
+          <label for="order">Order</label>
+          <input id="order" type="number" min="1" max="14" value="9" />
+        </div>
+        <div>
+          <label for="temp">Temperature</label>
+          <input id="temp" type="number" min="0.2" max="2" step="0.05" value="0.9" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="topK">Top K</label>
+          <input id="topK" type="number" min="1" max="8" value="3" />
+        </div>
+        <div>
+          <label for="maxLen">Max length</label>
+          <input id="maxLen" type="number" min="50" max="900" value="280" />
+        </div>
+      </div>
+
+      <div class="row actions">
+        <button id="loadSeedBtn" class="secondary">Load Preset</button>
+        <button id="trainBtn">Train Agent</button>
+        <button id="clearBtn" class="secondary">Clear Chat</button>
+      </div>
+
+      <div class="row actions">
+        <button id="exportBtn" class="secondary">Export JSON</button>
+        <button id="importBtn" class="secondary">Import JSON</button>
+        <button id="resetBtn" class="secondary">Reset Saved Chat</button>
+        <input id="importFile" class="file-input" type="file" accept="application/json" />
+        <div></div>
+      </div>
+
+      <div class="inspector">
+        <h2>Memory Inspector</h2>
+        <div id="memoryStatus" class="statline">Not trained yet</div>
+        <div id="memoryStats" class="statline"></div>
+        <label>Top keywords</label>
+        <ul id="keywordList"></ul>
+        <label>Short-term chunks</label>
+        <ul id="shortTermList"></ul>
+        <label>Pinned context</label>
+        <div class="context-box" id="pinnedContextBox">No pinned context.</div>
+        <div class="row actions" style="margin-top:8px;">
+          <button id="clearPinnedBtn" class="secondary">Clear Pinned Context</button>
+          <div></div>
+          <div></div>
+        </div>
+      </div>
+
+      <div id="status" class="meta" style="margin-top:10px;">Status: not trained</div>
+    </section>
+
+    <section class="panel">
+      <div class="chat" id="chat"></div>
+      <div style="display:flex; gap:8px; margin-top: 10px;">
+        <input id="queryInput" placeholder="Ask something..." />
+        <button id="sendBtn" style="width: 160px; margin-top:0;">Send</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    class HierarchicalMemory {
+      constructor() {
+        this.shortTerm = [];
+        this.longTerm = [];
+        this.conceptual = {};
+      }
+      _keywords(text) {
+        return [...new Set((String(text || "").toLowerCase().match(/\b\w{4,}\b/g) || []))];
+      }
+      addText(text, chunkSize = 120) {
+        text = String(text || "").replace(/\s+/g, " ").trim();
+        if (!text) return;
+        const step = Math.max(1, Math.floor(chunkSize / 2));
+        const chunks = [];
+        for (let i = 0; i < text.length; i += step) {
+          const chunk = text.slice(i, i + chunkSize);
+          if (chunk) chunks.push(chunk);
+        }
+        this.shortTerm = chunks.slice(-20);
+        this.longTerm.push(...chunks);
+        for (const chunk of chunks) {
+          const words = chunk.toLowerCase().match(/\b\w{4,}\b/g) || [];
+          for (const word of words) this.conceptual[word] = (this.conceptual[word] || 0) + 1;
+        }
+      }
+      _vec(text) {
+        const v = new Float32Array(512);
+        for (const c of text) v[c.charCodeAt(0) % 512] += 1;
+        let normSq = 0;
+        for (let i = 0; i < 512; i++) normSq += v[i] * v[i];
+        const norm = Math.sqrt(normSq) || 1;
+        for (let i = 0; i < 512; i++) v[i] = v[i] / norm;
+        return v;
+      }
+      _sim(a, b) {
+        let s = 0;
+        for (let i = 0; i < 512; i++) s += a[i] * b[i];
+        return s;
+      }
+      _score(query, chunk, level = "long") {
+        const queryVec = this._vec(String(query || ""));
+        const chunkVec = this._vec(String(chunk || ""));
+        const similarity = this._sim(queryVec, chunkVec);
+        const queryKeywords = this._keywords(query);
+        const chunkKeywordSet = new Set(this._keywords(chunk));
+        const overlap = queryKeywords.reduce((count, word) => count + (chunkKeywordSet.has(word) ? 1 : 0), 0);
+        const keywordScore = queryKeywords.length ? overlap / queryKeywords.length : 0;
+        const levelWeight = level === "short" ? 0.95 : 1.0;
+        return levelWeight * (0.7 * similarity + 0.3 * keywordScore);
+      }
+
+      retrieveDetailed(query, topK = 3, level = "long") {
+        const pool = level === "short" ? this.shortTerm : this.longTerm;
+        if (!pool.length) return [];
+        return pool
+          .map((chunk) => ({ chunk, score: this._score(query, chunk, level) }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, topK);
+      }
+      retrieve(query, topK = 3, level = "long") {
+        return this.retrieveDetailed(query, topK, level).map((x) => x.chunk);
+      }
+      topKeywords(n = 10) {
+        return Object.entries(this.conceptual).sort((a, b) => b[1] - a[1]).slice(0, n).map(([w]) => w);
+      }
+      get chunkCount() { return this.longTerm.length; }
+    }
+
+    class CharacterMarkovGenerator {
+      constructor(order = 9, temperature = 0.9) {
+        this.order = order;
+        this.temperature = temperature;
+        this.trans = {};
+        this.vocab = [];
+      }
+      fit(text) {
+        text = String(text || "").replace(/\s+/g, " ").trim();
+        if (!text) return this;
+        this.vocab = [...new Set(text)];
+        this.trans = {};
+        for (let o = 1; o <= this.order; o++) {
+          for (let i = 0; i < text.length - o; i++) {
+            const ctx = text.slice(i, i + o);
+            const nxt = text[i + o];
+            if (!this.trans[ctx]) this.trans[ctx] = {};
+            this.trans[ctx][nxt] = (this.trans[ctx][nxt] || 0) + 1;
+          }
+        }
+        return this;
+      }
+      _distributionForContext(context) {
+        const probs = {};
+        for (let o = Math.min(this.order, context.length); o >= 1; o--) {
+          const ctx = context.slice(-o);
+          const counts = this.trans[ctx];
+          if (!counts) continue;
+          const total = Object.values(counts).reduce((s, v) => s + v, 0);
+          for (const [ch, cnt] of Object.entries(counts)) probs[ch] = (probs[ch] || 0) + cnt / total;
+        }
+        const chars = Object.keys(probs);
+        if (!chars.length) return [];
+        const temperature = Math.max(this.temperature, 1e-6);
+        const weights = chars.map((ch) => Math.pow(probs[ch], 1 / temperature));
+        const sum = weights.reduce((s, x) => s + x, 0) + 1e-12;
+        return chars.map((ch, index) => ({ ch, prob: weights[index] / sum })).sort((a, b) => b.prob - a.prob);
+      }
+
+      _sampleFromDistribution(distribution) {
+        if (!distribution.length) return null;
+        let r = Math.random();
+        let acc = 0;
+        for (const item of distribution) {
+          acc += item.prob;
+          if (r < acc) return item.ch;
+        }
+        return distribution[distribution.length - 1].ch;
+      }
+      generate(prompt = "", maxLen = 300) {
+        const gen = prompt ? [...prompt.slice(-this.order)] : [" "];
+        for (let step = 0; step < maxLen; step++) {
+          const distribution = this._distributionForContext(gen.join(""));
+          if (!distribution.length) {
+            const fallback = this.vocab[Math.floor(Math.random() * this.vocab.length)] || " ";
+            gen.push(fallback);
+            continue;
+          }
+          const chosen = this._sampleFromDistribution(distribution);
+          gen.push(chosen);
+          if (".!?".includes(chosen) && gen.length > 50) break;
+        }
+        return gen.join("").replace(/\s+/g, " ").trim();
+      }
+      generateBest(prompt = "", maxLen = 300, beamWidth = 6) {
+        const seed = prompt ? prompt.replace(/\s+/g, " ").trim().slice(-Math.max(1, this.order)) : " ";
+        let beams = [{ text: seed, score: 0, ended: false }];
+        for (let step = 0; step < maxLen; step++) {
+          const nextBeams = [];
+          for (const beam of beams) {
+            if (beam.ended) {
+              nextBeams.push(beam);
+              continue;
+            }
+            const distribution = this._distributionForContext(beam.text);
+            if (!distribution.length) {
+              nextBeams.push({ ...beam, ended: true });
+              continue;
+            }
+            for (const item of distribution.slice(0, beamWidth)) {
+              const nextText = beam.text + item.ch;
+              const punctuationBonus = ".!?".includes(item.ch) && nextText.length > 50 ? 0.15 : 0;
+              nextBeams.push({
+                text: nextText,
+                score: beam.score + Math.log(item.prob + 1e-12) + punctuationBonus,
+                ended: ".!?".includes(item.ch) && nextText.length > 50,
+              });
+            }
+          }
+          nextBeams.sort((a, b) => b.score - a.score || b.text.length - a.text.length);
+          beams = nextBeams.slice(0, Math.max(beamWidth, 4));
+          if (beams.every((beam) => beam.ended)) break;
+        }
+        const best = beams.reduce((winner, current) => {
+          const winnerScore = winner.score / Math.pow(Math.max(winner.text.length, 1), 0.65);
+          const currentScore = current.score / Math.pow(Math.max(current.text.length, 1), 0.65);
+          return currentScore > winnerScore ? current : winner;
+        }, beams[0]);
+        return best.text.replace(/\s+/g, " ").trim();
+      }
+      get transitionCount() { return Object.values(this.trans).reduce((s, v) => s + Object.keys(v).length, 0); }
+    }
+
+    function normalizeText(text) {
+      return String(text || "").replace(/\s+/g, " ").trim();
+    }
+
+    function keywords(text) {
+      return [...new Set((normalizeText(text).toLowerCase().match(/\b\w{3,}\b/g) || []))];
+    }
+
+    function overlapScore(a, b) {
+      const left = keywords(a);
+      const right = new Set(keywords(b));
+      if (!left.length || !right.size) return 0;
+      const hits = left.reduce((count, word) => count + (right.has(word) ? 1 : 0), 0);
+      return hits / left.length;
+    }
+
+    function uniqueBy(list, keyFn) {
+      const seen = new Set();
+      const result = [];
+      for (const item of list) {
+        const key = keyFn(item);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(item);
+      }
+      return result;
+    }
+
+    class IntentParser {
+      parse(text) {
+        const raw = normalizeText(text);
+        const lower = raw.toLowerCase();
+        const tokens = keywords(raw);
+        const dsl = this._taskDsl(text);
+        const entities = this._entities(raw);
+        const constraints = this._constraints(raw);
+        const relations = this._relations(raw, dsl);
+        const taskType = this._taskType(lower, constraints);
+
+        const structuredQuery = {
+          mode: taskType,
+          focus: tokens.slice(0, 8),
+          entities,
+          constraints,
+          relations,
+          dsl,
+          wantsEvidence: /why|how|what|which|cite|evidence|source|support|verify|prove|check/.test(lower),
+          wantsPlanning: /plan|schedule|decompose|execute|steps?|workflow|pipeline|task graph/.test(lower),
+          wantsReasoning: /infer|reason|deduce|derive|theorem|logic|proof|constraint|solve/.test(lower),
+        };
+
+        const graph = this._taskGraph(raw, taskType, entities, constraints, relations, dsl);
+
+        return { raw, normalized: raw, taskType, intent: taskType, tokens, dsl, entities, constraints, relations, structuredQuery, graph, confidence: this._confidence(taskType, tokens, constraints, relations) };
+      }
+
+      _taskType(lower, constraints) {
+        if (/\b(tasks?|constraints?|depends|dependency|schedule|plan)\s*:/i.test(lower)) return "planner";
+        if (/\b(schedule|dependency|order|precedence|after|before|timeline)\b/.test(lower) || constraints.length) return "planner";
+        if (/\b(prove|verify|check|contradiction|satisfy|satisfies|unsat|sat)\b/.test(lower)) return "verifier";
+        if (/\b(compare|contrast|versus|vs\.?|tradeoff)\b/.test(lower)) return "comparison";
+        if (/\b(what|define|definition|mean|means|is)\b/.test(lower)) return "retrieval";
+        if (/\b(how|why|explain|because|reason|derive)\b/.test(lower)) return "reasoning";
+        if (/\b(generate|write|draft|compose|synthesize)\b/.test(lower)) return "generation";
+        return "analysis";
+      }
+
+      _entities(raw) {
+        const stopwords = new Set(["what", "why", "how", "when", "where", "which", "who", "whom", "whose", "is", "are", "do", "does", "did", "can", "could", "should", "would", "please"]);
+        const quoted = raw.match(/"([^"]+)"|'([^']+)'/g)?.map((s) => s.slice(1, -1)) || [];
+        const proper = raw.match(/\b[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*/g) || [];
+        return uniqueBy([...quoted, ...proper], (value) => value.toLowerCase()).filter((value) => !stopwords.has(value.toLowerCase())).slice(0, 12);
+      }
+
+      _constraints(raw) {
+        const matches = [];
+        const patterns = [/\bmust\s+([^.;]+)/gi, /\bonly\s+([^.;]+)/gi, /\bwithout\s+([^.;]+)/gi, /\bbefore\s+([^.;]+)/gi, /\bafter\s+([^.;]+)/gi, /\bunless\s+([^.;]+)/gi, /\bif\s+([^.;]+)/gi];
+        for (const pattern of patterns) {
+          let match;
+          while ((match = pattern.exec(raw))) matches.push(match[1].trim());
+        }
+        return uniqueBy(matches.filter(Boolean), (value) => value.toLowerCase()).slice(0, 10);
+      }
+
+      _taskDsl(rawText) {
+        const raw = String(rawText || "");
+        const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+        const taskLine = lines.find((line) => /^tasks?\s*:/i.test(line)) || raw.match(/tasks?\s*:\s*([^\n]+)/i)?.[0] || "";
+        const constraintLine = lines.find((line) => /^constraints?\s*:/i.test(line)) || raw.match(/constraints?\s*:\s*([^\n]+)/i)?.[0] || "";
+        const ruleLines = lines.filter((line) => !/^tasks?\s*:/i.test(line)).map((line) => line.replace(/^constraints?\s*:/i, "").trim());
+        const tasks = this._parseTaskList(taskLine.replace(/^tasks?\s*:/i, ""));
+        const rawRuleText = [constraintLine.replace(/^constraints?\s*:/i, ""), ...ruleLines].map((part) => part.trim()).filter(Boolean).filter((part, index, list) => list.indexOf(part) === index).join("; ");
+        const rules = this._parseDslRules(rawRuleText);
+        if (!tasks.length && !rules.length) return null;
+        const derivedTasks = [];
+        for (const rule of rules) {
+          if (rule.from) derivedTasks.push(rule.from);
+          if (rule.to) derivedTasks.push(rule.to);
+        }
+        return { tasks: uniqueBy([...tasks, ...derivedTasks].filter(Boolean), (value) => value.toLowerCase()), rules, raw: rawRuleText };
+      }
+
+      _parseTaskList(text) {
+        return uniqueBy(String(text || "").split(/[,|]/).map((item) => normalizeText(item.replace(/^[-*]\s*/, ""))).filter(Boolean), (value) => value.toLowerCase());
+      }
+
+      _parseDslRules(text) {
+        const rules = [];
+        const segments = String(text || "").split(/[;\n]+/).flatMap((segment) => segment.split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/)).map((segment) => normalizeText(segment)).filter(Boolean);
+        for (const segment of segments) {
+          let match = segment.match(/^(.+?)\s*->\s*(.+)$/);
+          if (match) { rules.push({ relation: "before", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment }); continue; }
+          match = segment.match(/^(.+?)\s*=>\s*(.+)$/);
+          if (match) { rules.push({ relation: "depends_on", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment }); continue; }
+          match = segment.match(/^(.+?)\s*!\s*(.+)$/);
+          if (match) { rules.push({ relation: "mutex", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment }); continue; }
+          match = segment.match(/^(.+?)\s+before\s+(.+)$/i);
+          if (match) { rules.push({ relation: "before", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment }); continue; }
+          match = segment.match(/^(.+?)\s+after\s+(.+)$/i);
+          if (match) { rules.push({ relation: "after", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment }); continue; }
+          match = segment.match(/^(.+?)\s+(?:depends on|requires)\s+(.+)$/i);
+          if (match) rules.push({ relation: "depends_on", from: normalizeText(match[1]), to: normalizeText(match[2]), source: segment });
+        }
+        return uniqueBy(rules, (value) => `${value.relation}:${value.from.toLowerCase()}:${value.to.toLowerCase()}`);
+      }
+
+      _relations(raw, dsl = null) {
+        const relations = [];
+        const patterns = [
+          { relation: "before", regex: /\b([A-Za-z0-9_\- ]+?)\s+before\s+([A-Za-z0-9_\- ]+?)(?:[.;,]|$)/gi },
+          { relation: "after", regex: /\b([A-Za-z0-9_\- ]+?)\s+after\s+([A-Za-z0-9_\- ]+?)(?:[.;,]|$)/gi },
+          { relation: "depends_on", regex: /\b([A-Za-z0-9_\- ]+?)\s+depends? on\s+([A-Za-z0-9_\- ]+?)(?:[.;,]|$)/gi },
+          { relation: "requires", regex: /\b([A-Za-z0-9_\- ]+?)\s+requires\s+([A-Za-z0-9_\- ]+?)(?:[.;,]|$)/gi },
+          { relation: "uses", regex: /\b([A-Za-z0-9_\- ]+?)\s+uses\s+([A-Za-z0-9_\- ]+?)(?:[.;,]|$)/gi },
+        ];
+        for (const { relation, regex } of patterns) {
+          let match;
+          while ((match = regex.exec(raw))) relations.push({ relation, from: match[1].trim(), to: match[2].trim() });
+        }
+        if (dsl?.rules?.length) relations.push(...dsl.rules.map((rule) => ({ relation: rule.relation, from: rule.from, to: rule.to })));
+        return uniqueBy(relations, (value) => `${value.relation}:${value.from.toLowerCase()}:${value.to.toLowerCase()}`);
+      }
+
+      _taskGraph(raw, taskType, entities, constraints, relations, dsl = null) {
+        const nodes = [{ id: "intent", type: "intent", label: taskType, text: raw }, { id: "query", type: "query", label: raw.slice(0, 120), text: raw }];
+        const edges = [{ from: "intent", to: "query", relation: "describes" }];
+        entities.forEach((entity, index) => { const id = `entity:${index}`; nodes.push({ id, type: "entity", label: entity, text: entity }); edges.push({ from: "query", to: id, relation: "mentions" }); });
+        constraints.forEach((constraint, index) => { const id = `constraint:${index}`; nodes.push({ id, type: "constraint", label: constraint, text: constraint }); edges.push({ from: "intent", to: id, relation: "constrains" }); });
+        relations.forEach((relation, index) => { const id = `relation:${index}`; nodes.push({ id, type: "relation", label: relation.relation, text: `${relation.from} ${relation.relation} ${relation.to}` }); edges.push({ from: "query", to: id, relation: relation.relation }); });
+        dsl?.tasks?.forEach((task, index) => { const id = `task:${index}`; nodes.push({ id, type: "task", label: task, text: task }); edges.push({ from: "intent", to: id, relation: "task" }); });
+        return { nodes, edges };
+      }
+
+      _confidence(taskType, tokens, constraints, relations) {
+        let confidence = 0.5;
+        if (tokens.length > 4) confidence += 0.1;
+        if (constraints.length) confidence += 0.15;
+        if (relations.length) confidence += 0.1;
+        if (taskType !== "analysis") confidence += 0.1;
+        return Math.min(0.95, confidence);
+      }
+    }
+
+    class KnowledgeGraph {
+      constructor() { this.triples = []; this.index = new Map(); this.nodes = new Set(); }
+      addText(text, source = "corpus") {
+        const sentences = normalizeText(text).split(/[.!?]+\s*/).map((sentence) => sentence.trim()).filter(Boolean);
+        for (const sentence of sentences) for (const triple of this._extractTriples(sentence, source)) this._addTriple(triple);
+      }
+      _addTriple(triple) {
+        const id = `${triple.subject}|${triple.relation}|${triple.object}`.toLowerCase();
+        if (this.triples.some((item) => item.id === id)) return;
+        const record = { id, ...triple };
+        this.triples.push(record);
+        this.nodes.add(record.subject);
+        this.nodes.add(record.object);
+        for (const term of keywords(`${record.subject} ${record.relation} ${record.object}`)) { if (!this.index.has(term)) this.index.set(term, new Set()); this.index.get(term).add(id); }
+      }
+      _extractTriples(sentence, source) {
+        const triples = [];
+        const patterns = [
+          { relation: "is", regex: /^(.+?)\s+is\s+(?:an?|the)?\s*(.+)$/i },
+          { relation: "are", regex: /^(.+?)\s+are\s+(?:an?|the)?\s*(.+)$/i },
+          { relation: "uses", regex: /^(.+?)\s+uses\s+(.+)$/i },
+          { relation: "requires", regex: /^(.+?)\s+requires\s+(.+)$/i },
+          { relation: "depends_on", regex: /^(.+?)\s+depends? on\s+(.+)$/i },
+          { relation: "enables", regex: /^(.+?)\s+enables\s+(.+)$/i },
+          { relation: "prevents", regex: /^(.+?)\s+prevents\s+(.+)$/i },
+          { relation: "supports", regex: /^(.+?)\s+supports\s+(.+)$/i },
+          { relation: "contains", regex: /^(.+?)\s+contains\s+(.+)$/i },
+          { relation: "includes", regex: /^(.+?)\s+includes\s+(.+)$/i },
+          { relation: "maps_to", regex: /^(.+?)\s+maps? to\s+(.+)$/i },
+        ];
+        for (const { relation, regex } of patterns) {
+          const match = sentence.match(regex);
+          if (!match) continue;
+          const subject = match[1].trim();
+          const object = match[2].trim();
+          if (subject.length < 2 || object.length < 2) continue;
+          triples.push({ subject, relation, object, sentence, source });
+        }
+        return triples;
+      }
+      query(text, topK = 5) {
+        const queryTerms = keywords(text);
+        const scored = this.triples.map((triple) => {
+          const tripleText = `${triple.subject} ${triple.relation} ${triple.object}`;
+          const score = Math.max(overlapScore(text, tripleText), overlapScore(text, triple.sentence)) + 0.15 * queryTerms.filter((term) => tripleText.toLowerCase().includes(term)).length;
+          return { ...triple, score };
+        });
+        return scored.sort((a, b) => b.score - a.score || a.subject.localeCompare(b.subject)).slice(0, topK).map((triple) => ({ id: triple.id, type: "fact", source: triple.source, relation: triple.relation, subject: triple.subject, object: triple.object, content: `${triple.subject} ${triple.relation} ${triple.object}`, sentence: triple.sentence, score: triple.score }));
+      }
+    }
+
+    class Retriever {
+      constructor(memory, graph) { this.memory = memory; this.graph = graph; }
+      pullFacts(query, topK = 5) {
+        const memoryLong = this.memory.retrieveDetailed(query, topK, "long").map((item, index) => ({ id: `memory-long:${index}`, type: "chunk", source: "memory.long", content: item.chunk, score: item.score }));
+        const memoryShort = this.memory.retrieveDetailed(query, Math.max(2, Math.min(topK, 3)), "short").map((item, index) => ({ id: `memory-short:${index}`, type: "chunk", source: "memory.short", content: item.chunk, score: item.score * 0.95 }));
+        const graphFacts = this.graph.query(query, topK);
+        return uniqueBy([...memoryLong, ...memoryShort, ...graphFacts], (item) => item.content.toLowerCase()).slice(0, topK * 2);
+      }
+    }
+
+    class ConstraintSolver {
+      solve(items, relations = []) {
+        const nodes = uniqueBy(items.map((item) => normalizeText(item)).filter(Boolean), (value) => value.toLowerCase());
+        const index = new Map(nodes.map((node, position) => [node.toLowerCase(), position]));
+        const edges = new Map(nodes.map((node) => [node, new Set()]));
+        const indegree = new Map(nodes.map((node) => [node, 0]));
+        const conflicts = [];
+        for (const relation of relations) {
+          const from = this._resolve(relation.from, index, nodes);
+          const to = this._resolve(relation.to, index, nodes);
+          if (!from || !to) { conflicts.push(`unresolved relation: ${relation.from} ${relation.relation} ${relation.to}`); continue; }
+          if (relation.relation === "before") this._edge(from, to, edges, indegree); else if (relation.relation === "after") this._edge(to, from, edges, indegree); else if (relation.relation === "depends_on" || relation.relation === "requires") this._edge(to, from, edges, indegree); else if (relation.relation === "mutex") conflicts.push(`mutex violation: ${from} ! ${to}`);
+        }
+        const queue = nodes.filter((node) => indegree.get(node) === 0).sort((a, b) => a.localeCompare(b));
+        const ordered = [];
+        while (queue.length) {
+          const node = queue.shift();
+          ordered.push(node);
+          for (const next of edges.get(node) || []) {
+            indegree.set(next, indegree.get(next) - 1);
+            if (indegree.get(next) === 0) queue.push(next);
+          }
+          queue.sort((a, b) => a.localeCompare(b));
+        }
+        if (ordered.length !== nodes.length) {
+          conflicts.push("constraint cycle detected");
+          return { ok: false, ordered, conflicts };
+        }
+        return { ok: conflicts.length === 0, ordered, conflicts };
+      }
+      _resolve(value, index, nodes) {
+        const normalized = normalizeText(value);
+        if (!normalized) return null;
+        if (index.has(normalized.toLowerCase())) return nodes[index.get(normalized.toLowerCase())];
+        return nodes.find((node) => node.toLowerCase().includes(normalized.toLowerCase())) || null;
+      }
+      _edge(from, to, edges, indegree) { if (!edges.has(from)) edges.set(from, new Set()); if (!edges.get(from).has(to)) { edges.get(from).add(to); indegree.set(to, (indegree.get(to) || 0) + 1); } }
+    }
+
+    class PlannerExecutor {
+      plan(intent, evidence = []) {
+        const steps = [{ id: "parse", action: "parse_intent", dependsOn: [] }, { id: "retrieve", action: "retrieve_evidence", dependsOn: ["parse"] }, { id: "reason", action: "reason_over_evidence", dependsOn: ["retrieve"] }, { id: "rank", action: "rank_candidates", dependsOn: ["reason"] }, { id: "verify", action: "verify_answer", dependsOn: ["rank"] }];
+        if (intent.taskType === "planner" || intent.structuredQuery.wantsPlanning) { steps.splice(2, 0, { id: "solve", action: "solve_constraints", dependsOn: ["retrieve"] }); steps.push({ id: "execute", action: "execute_plan", dependsOn: ["verify"] }); }
+        return { intent: intent.taskType, steps, evidenceIds: evidence.map((item) => item.id) };
+      }
+    }
+
+    class Reasoner {
+      constructor(constraintSolver = new ConstraintSolver()) { this.constraintSolver = constraintSolver; }
+      infer(intent, evidence, graph) {
+        const evidenceLines = evidence.map((item) => item.content || item.sentence || "").filter(Boolean);
+        const facts = graph.query(intent.raw, 5);
+        const reasoning = [];
+        if (intent.taskType === "planner" && intent.relations.length) {
+          const planItems = intent.dsl?.tasks?.length ? intent.dsl.tasks : intent.entities.length ? intent.entities : evidenceLines.slice(0, 6);
+          const solve = this.constraintSolver.solve(planItems, intent.relations);
+          reasoning.push(`constraint solver: ${solve.ok ? "consistent" : "conflict"}`);
+          if (solve.ordered.length) reasoning.push(`order: ${solve.ordered.join(" -> ")}`);
+          if (solve.conflicts.length) reasoning.push(...solve.conflicts);
+          return { reasoning, conclusion: solve.ordered, facts, solver: solve };
+        }
+        if (intent.taskType === "comparison" && intent.entities.length >= 2) {
+          reasoning.push(`compare ${intent.entities[0]} with ${intent.entities[1]}`);
+          return { reasoning, conclusion: facts.slice(0, 3).map((fact) => fact.content), facts };
+        }
+        if (intent.taskType === "verifier") {
+          reasoning.push("verify consistency against retrieved evidence");
+          return { reasoning, conclusion: facts.slice(0, 3).map((fact) => fact.content), facts };
+        }
+        reasoning.push(`use ${evidenceLines.length} evidence items`);
+        reasoning.push(`selected facts: ${facts.slice(0, 3).map((fact) => fact.content).join("; ")}`);
+        return { reasoning, conclusion: evidenceLines.slice(0, 3), facts };
+      }
+    }
+
+    class Ranker {
+      scoreCandidate(candidate, evidence, intent) {
+        const answerText = normalizeText(candidate.answer || candidate.text || "");
+        const evidenceText = evidence.map((item) => item.content || item.sentence || "").join(" ");
+        const queryText = intent.raw || intent.normalized || "";
+        const relevance = overlapScore(queryText, answerText) + 0.5 * overlapScore(queryText, evidenceText);
+        const coverage = candidate.solverBacked ? 1 : evidence.length ? (candidate.evidenceIds ? new Set(candidate.evidenceIds).size / evidence.length : 0) : 0;
+        const consistency = candidate.verification?.ok ? 1 : candidate.verification?.supportRatio ?? 0.25;
+        const structuredBonus = candidate.kind === "evidence" ? 0.15 : candidate.kind === "graph" ? 0.1 : candidate.kind === "plan" ? 0.2 : 0;
+        const unsupportedPenalty = candidate.verification?.issues?.length ? Math.min(0.35, candidate.verification.issues.length * 0.08) : 0;
+        const plannerBoost = intent.taskType === "planner" && candidate.solverBacked && candidate.solver?.ok ? 0.4 : 0;
+        return 0.45 * relevance + 0.3 * coverage + 0.2 * consistency + structuredBonus + plannerBoost - unsupportedPenalty;
+      }
+      rank(candidates, evidence, intent) { return candidates.map((candidate) => ({ ...candidate, score: this.scoreCandidate(candidate, evidence, intent) })).sort((a, b) => b.score - a.score || a.kind.localeCompare(b.kind)); }
+    }
+
+    class Verifier {
+      verify(candidate, evidence, intent) {
+        const issues = [];
+        const answerText = normalizeText(candidate.answer || candidate.text || "");
+        const evidenceText = evidence.map((item) => item.content || item.sentence || "").join(" ");
+        const evidenceTerms = new Set(keywords(evidenceText));
+        const answerTerms = keywords(answerText);
+        const supported = answerTerms.filter((term) => evidenceTerms.has(term));
+        const supportRatio = answerTerms.length ? supported.length / answerTerms.length : 0;
+        if (!answerText) issues.push("empty answer");
+        if (!evidence.length && !candidate.solverBacked) issues.push("no evidence retrieved");
+        if (supportRatio < 0.2 && evidence.length && !candidate.solverBacked) issues.push("insufficient evidence linkage");
+        if (candidate.evidenceIds && candidate.evidenceIds.length === 0) issues.push("candidate lacks citations");
+        if (candidate.kind === "plan" && intent.taskType !== "planner") issues.push("plan candidate used for non-planning intent");
+        if (candidate.solverBacked && candidate.solver?.conflicts?.length) issues.push(...candidate.solver.conflicts);
+        if (/\b(?:kill|harm|explosive|weapon|self-harm)\b/i.test(answerText)) issues.push("unsafe content");
+        return { ok: issues.length === 0, issues, supportRatio, supportedTerms: supported };
+      }
+    }
+
+    class HybridSymbolicSystem {
+      constructor(opts = {}) {
+        this.order = opts.order ?? 9;
+        this.temperature = opts.temperature ?? 0.9;
+        this.maxLength = opts.maxLength ?? 400;
+        this.topK = opts.topK ?? 3;
+        this.parser = new IntentParser();
+        this.memory = opts.memory;
+        this.graph = opts.graph ?? new KnowledgeGraph();
+        this.retriever = new Retriever(this.memory, this.graph);
+        this.reasoner = new Reasoner();
+        this.planner = new PlannerExecutor();
+        this.ranker = new Ranker();
+        this.verifier = new Verifier();
+        this.markov = opts.markov;
+      }
+      learn(corpus) {
+        const text = normalizeText(corpus);
+        if (!text) return { chars: 0, facts: 0, chunks: 0 };
+        this.memory.addText(text);
+        this.graph.addText(text);
+        this.markov.fit(text);
+        return { chars: text.length, chunks: this.memory.chunkCount, facts: this.graph.triples.length, transitions: this.markov.transitionCount, keywords: this.memory.topKeywords(8) };
+      }
+      _buildEvidenceDigest(intent, evidence, reasoning, topK = this.topK) {
+        const selected = evidence.slice(0, topK);
+        const lines = selected.map((item, index) => `[E${index + 1}] ${item.content || item.sentence || ""}`);
+        const facts = reasoning.facts?.slice(0, topK).map((fact, index) => `[F${index + 1}] ${fact.content}`) || [];
+        const body = [...lines, ...facts];
+        return { kind: "evidence", answer: body.length ? [`Answer:`, ...body, reasoning.reasoning.length ? `Reasoning: ${reasoning.reasoning.join(" | ")}` : "", `Query: ${intent.raw}`].filter(Boolean).join("\n") : `Answer: No sufficiently strong evidence was retrieved for: ${intent.raw}`, evidenceIds: selected.map((item) => item.id), details: body };
+      }
+      _buildPlanCandidate(intent, reasoning) {
+        if (intent.taskType !== "planner" || !reasoning.solver) return null;
+        const ordered = reasoning.solver.ordered.map((task, index) => `[P${index + 1}] ${task}`);
+        const status = reasoning.solver.ok ? "consistent" : `conflict: ${reasoning.solver.conflicts.join("; ")}`;
+        return { kind: "plan", answer: ["Answer:", `Plan status: ${status}`, ...ordered, `Rules: ${(intent.dsl?.rules || intent.relations).map((rule) => `${rule.from} ${rule.relation} ${rule.to}`).join(" | ")}`, `Query: ${intent.raw}`].join("\n"), evidenceIds: ["solver"], solverBacked: true, solver: reasoning.solver };
+      }
+      _buildGraphCandidate(intent, evidence, reasoning) { if (!reasoning.conclusion || !reasoning.conclusion.length) return null; return { kind: "graph", answer: [`Answer:`, ...reasoning.conclusion.map((item, index) => `[G${index + 1}] ${item}`), `Query: ${intent.raw}`].join("\n"), evidenceIds: evidence.slice(0, 3).map((item) => item.id) }; }
+      _buildMarkovCandidate(intent, evidence, maxLength) { const context = evidence.map((item) => item.content || item.sentence || "").join(" ").slice(0, 600); const prompt = `Evidence: ${context} Question: ${intent.raw} Answer:`; return { kind: "generation", answer: this.markov.generateBest(prompt, maxLength, Math.max(4, this.topK + 4)), evidenceIds: evidence.slice(0, this.topK).map((item) => item.id), prompt }; }
+      think(query, opts = {}) {
+        const parsed = this.parser.parse(query);
+        const order = opts.order ?? this.order;
+        const temperature = opts.temperature ?? this.temperature;
+        const maxLength = opts.maxLength ?? this.maxLength;
+        const topK = opts.topK ?? this.topK;
+        this.markov.order = order;
+        this.markov.temperature = temperature;
+        const plan = this.planner.plan(parsed, []);
+        const evidence = this.retriever.pullFacts(parsed.raw, topK * 2);
+        const reasoning = this.reasoner.infer(parsed, evidence, this.graph);
+        const candidates = [this._buildPlanCandidate(parsed, reasoning), this._buildEvidenceDigest(parsed, evidence, reasoning, topK), this._buildGraphCandidate(parsed, evidence, reasoning), this._buildMarkovCandidate(parsed, evidence, maxLength)].filter(Boolean);
+        const evaluated = this.ranker.rank(candidates.map((candidate) => ({ ...candidate, verification: this.verifier.verify(candidate, evidence, parsed) })), evidence, parsed);
+        const accepted = evaluated.find((candidate) => candidate.verification.ok) || evaluated[0];
+        const verification = this.verifier.verify(accepted, evidence, parsed);
+        const answer = accepted.answer.slice(0, maxLength);
+        return { query: parsed.raw, answer, intent: parsed, plan, evidence, reasoning, rankedCandidates: evaluated, verification, retrieved: evidence.map((item) => item.content || item.sentence || ""), prompt: accepted.prompt || `Evidence-linked response for: ${parsed.raw}`, stats: { order, temperature, answerLength: answer.length, transitions: this.markov.transitionCount, chunks: this.memory.chunkCount, facts: this.graph.triples.length, evidenceCount: evidence.length, verificationOk: verification.ok, taskType: parsed.taskType } };
+      }
+    }
+
+    class NonNeuralAgent {
+      constructor(opts = {}) {
+        this.order = opts.order ?? 9;
+        this.temperature = opts.temperature ?? 0.9;
+        this.maxLength = opts.maxLength ?? 400;
+        this.topK = opts.topK ?? 3;
+        this.memory = new HierarchicalMemory();
+        this.markov = new CharacterMarkovGenerator(this.order, this.temperature);
+        this.symbolic = new HybridSymbolicSystem({ order: this.order, temperature: this.temperature, maxLength: this.maxLength, topK: this.topK, memory: this.memory, markov: this.markov });
+        this.trained = false;
+      }
+      learn(corpus) {
+        const info = this.symbolic.learn(corpus);
+        this.trained = true;
+        return info;
+      }
+      think(query, opts = {}) {
+        if (!this.trained) throw new Error("Call learn(corpus) before think().");
+        return this.symbolic.think(query, { order: opts.order ?? this.order, temperature: opts.temperature ?? this.temperature, maxLength: opts.maxLength ?? this.maxLength, topK: opts.topK ?? this.topK });
+      }
+      get stats() { return { trained: this.trained, transitions: this.markov.transitionCount, chunks: this.memory.chunkCount, facts: this.symbolic.graph.triples.length, keywords: this.memory.topKeywords(10) }; }
+    }
+
+    const CORPORA = {
+      ml: {
+        label: "Machine learning",
+        text: `Machine learning is the study of algorithms that improve through experience and data. Supervised learning uses labeled examples to train classifiers. A classifier maps input features to output categories. Decision trees split data by information gain at each node. The information gain measures how much a feature reduces entropy. Entropy quantifies uncertainty in a probability distribution. k-nearest neighbors classifies by majority vote among the k closest training points. Distance metrics like Euclidean and Manhattan measure similarity between feature vectors. Support vector machines find the maximum-margin hyperplane separating classes. The margin is the distance between the hyperplane and the nearest data points from each class. Regularization prevents overfitting by penalizing model complexity. Gradient descent minimizes a loss function by following the negative gradient. The learning rate controls step size during gradient descent. Overfitting occurs when a model memorizes training data rather than learning generalizable patterns. Cross-validation estimates generalization performance by rotating held-out folds. Feature scaling normalizes input ranges so no single feature dominates distance calculations. Ensemble methods combine many weak learners into a stronger predictor. Boosting trains successive learners on the residual errors of previous ones. Bagging reduces variance by averaging predictions over multiple bootstrap samples. Spectral methods decompose data using eigenvectors of graph Laplacians. The Laplacian captures the diffusion geometry of the data manifold. Label propagation spreads class information through a graph along high-weight edges. Graph pruning removes edges with low spectral coherence to reduce noise. Non-neural models are interpretable because every decision can be traced to a rule. Markov chains model sequences by remembering only a fixed context window. The order of a Markov chain determines how many previous states condition the next. Higher-order chains capture longer dependencies but require more training data. Character-level models operate on individual characters rather than words or tokens. Temperature scaling controls the randomness of sampling from a probability distribution. Low temperature makes the model more deterministic. High temperature increases diversity but can produce incoherent output. Memory systems store information at multiple levels of abstraction. Short-term memory holds recent context. Long-term memory consolidates important patterns over time. Conceptual memory indexes knowledge by keyword frequency. Retrieval finds the most relevant stored chunks using cosine similarity. Cosine similarity measures the angle between two vectors regardless of magnitude.`,
+      },
+      spectral: {
+        label: "Spectral graph theory",
+        text: `Spectral graph theory studies the relationship between graph structure and the eigenvalues of associated matrices. The adjacency matrix encodes which vertices share edges. The degree matrix is diagonal with vertex degrees on the diagonal. The unnormalized Laplacian is the degree matrix minus the adjacency matrix. The normalized Laplacian is symmetric and has eigenvalues between zero and two. The smallest eigenvalue of the Laplacian is always zero. The corresponding eigenvector is the constant vector. The second smallest eigenvalue is called the algebraic connectivity or Fiedler value. A larger Fiedler value indicates a better-connected graph. The eigenvectors of the Laplacian provide a natural embedding of the graph vertices. Spectral clustering uses these eigenvectors to partition graphs into communities. The spectral gap is the difference between the first and second eigenvalues. A large spectral gap implies rapid mixing of random walks on the graph. Random walks on graphs converge to the stationary distribution at a rate determined by the spectral gap. The heat kernel on a graph is defined via the matrix exponential of the Laplacian. Diffusion distances measure proximity in terms of all paths between vertices weighted by length. Graph signal processing extends classical signal processing to irregular domains. Convolution on graphs is defined through multiplication in the spectral domain. Graph neural networks generalize convolution by aggregating neighbor features. However non-neural spectral methods remain powerful because they have closed-form solutions. Eigendecomposition reveals the global structure of data manifolds. The top eigenvectors correspond to the smoothest functions on the graph. Pruning edges with low spectral coherence removes noise while preserving manifold structure. Spectral coherence between two connected nodes is measured by the squared difference of their embeddings. Nodes with similar spectral embeddings are more strongly connected in the pruned graph. The Nystrom method approximates eigenvectors for out-of-sample points. It interpolates the embedding of a new point from its neighbors in the training graph. Sparse matrix operations make spectral methods tractable for large graphs. The Lanczos algorithm efficiently computes the smallest eigenpairs of sparse symmetric matrices.`,
+      },
+      philosophy: {
+        label: "Philosophy of mind",
+        text: `The mind-body problem asks how mental states relate to physical brain states. Dualism holds that mind and matter are fundamentally different substances. Physicalism claims that mental states are entirely physical. Functionalism defines mental states by their causal roles rather than their substrate. A Turing machine computes any function that can be described by a finite algorithm. The Church-Turing thesis says that any effectively computable function is Turing computable. Strong artificial intelligence claims that a computer running the right program would genuinely think. Weak artificial intelligence claims only that computers can simulate thinking. The Chinese room argument imagines a person following rules to respond to Chinese symbols without understanding Chinese. Searle used this to argue that syntax is not sufficient for semantics. Consciousness involves subjective experience or qualia. The hard problem of consciousness asks why physical processes give rise to subjective experience. The easy problems concern explaining cognitive functions and behavioral capacities. Emergent properties arise from complex interactions among simpler components. Intelligence might be substrate-independent meaning it could run on silicon as easily as neurons. Embodied cognition holds that intelligence requires a body interacting with an environment. Perception is active construction not passive reception. Memory is reconstructive not reproductive. Attention selects relevant information from a vast sensory stream. Working memory holds a small number of items in active awareness simultaneously. Long-term memory stores vast amounts of information over years and decades. Semantic memory contains general knowledge about the world. Episodic memory stores specific personal experiences located in time and place. Procedural memory encodes skills and habits through practice. Generalization is the ability to apply learned knowledge to new situations. Analogy is central to human reasoning and creativity. Pattern recognition underlies most cognitive tasks. Non-neural computation can implement symbolic reasoning through explicit rules and representations.`,
+      },
+    };
+
+    const STORAGE_KEY = "nonneuralx-chat:session:v2";
+    const corpusSelect = document.getElementById("corpusSelect");
+    const seedCorpus = document.getElementById("seedCorpus");
+    const customCorpus = document.getElementById("customCorpus");
+    const orderInput = document.getElementById("order");
+    const tempInput = document.getElementById("temp");
+    const topKInput = document.getElementById("topK");
+    const maxLenInput = document.getElementById("maxLen");
+    const loadSeedBtn = document.getElementById("loadSeedBtn");
+    const trainBtn = document.getElementById("trainBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const exportBtn = document.getElementById("exportBtn");
+    const importBtn = document.getElementById("importBtn");
+    const importFile = document.getElementById("importFile");
+    const resetBtn = document.getElementById("resetBtn");
+    const memoryStatus = document.getElementById("memoryStatus");
+    const memoryStats = document.getElementById("memoryStats");
+    const keywordList = document.getElementById("keywordList");
+    const shortTermList = document.getElementById("shortTermList");
+    const pinnedContextBox = document.getElementById("pinnedContextBox");
+    const clearPinnedBtn = document.getElementById("clearPinnedBtn");
+    const sendBtn = document.getElementById("sendBtn");
+    const queryInput = document.getElementById("queryInput");
+    const chat = document.getElementById("chat");
+    const status = document.getElementById("status");
+
+    Object.entries(CORPORA).forEach(([key, v]) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = v.label;
+      corpusSelect.appendChild(opt);
+    });
+
+    function loadSeedPreset() { seedCorpus.value = CORPORA[corpusSelect.value]?.text || ""; }
+
+    let agent = new NonNeuralAgent({ order: 9, temperature: 0.9 });
+    let transcript = [];
+    let pinnedContext = [];
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function primeQuery(text, append = false) {
+      const value = String(text || "").trim();
+      if (!value) return;
+      if (append && queryInput.value.trim()) {
+        queryInput.value = `${queryInput.value.trim()} ${value}`;
+      } else {
+        queryInput.value = value;
+      }
+      queryInput.focus();
+      queryInput.setSelectionRange(queryInput.value.length, queryInput.value.length);
+    }
+
+    function pinContext(text) {
+      const value = String(text || "").trim();
+      if (!value) return;
+      if (!pinnedContext.includes(value)) pinnedContext.push(value);
+      saveSession();
+      renderMemoryInspector();
+    }
+
+    function clearPinnedContext() {
+      pinnedContext = [];
+      saveSession();
+      renderMemoryInspector();
+    }
+
+    function renderMemoryInspector() {
+      if (!agent?.trained) {
+        memoryStatus.textContent = "Not trained yet";
+        memoryStats.textContent = "";
+        keywordList.innerHTML = "";
+        shortTermList.innerHTML = "";
+        pinnedContextBox.textContent = pinnedContext.length ? pinnedContext.map((c) => c.slice(0, 90)).join(" • ") : "No pinned context.";
+        return;
+      }
+      const stats = agent.stats;
+      memoryStatus.textContent = `Trained: ${stats.trained ? "yes" : "no"}`;
+      memoryStats.textContent = `Long-term chunks: ${stats.chunks.toLocaleString()} | Short-term chunks: ${agent.memory.shortTerm.length.toLocaleString()} | Facts: ${(stats.facts || 0).toLocaleString()} | Transitions: ${stats.transitions.toLocaleString()}`;
+      keywordList.innerHTML = stats.keywords.map((kw) => `<li><button class="inspector-chip" data-kind="keyword" data-value="${encodeURIComponent(kw)}">${escapeHtml(kw)}</button></li>`).join("");
+      const shortChunks = agent.memory.shortTerm.slice(-6).reverse();
+      shortTermList.innerHTML = shortChunks.length
+        ? shortChunks.map((chunk) => `<li><button class="inspector-chip" data-kind="chunk" data-value="${encodeURIComponent(chunk)}">${escapeHtml(chunk.slice(0, 180))}${chunk.length > 180 ? "…" : ""}</button></li>`).join("")
+        : "<li>No short-term chunks yet.</li>";
+      pinnedContextBox.textContent = pinnedContext.length ? pinnedContext.map((chunk) => chunk.slice(0, 90)).join(" • ") : "No pinned context.";
+      document.querySelectorAll(".inspector-chip").forEach((button) => {
+        button.addEventListener("click", () => {
+          const value = decodeURIComponent(button.dataset.value || "");
+          if (button.dataset.kind === "chunk") {
+            pinContext(value);
+          } else {
+            primeQuery(value, true);
+          }
+        });
+      });
+    }
+
+    function saveSession() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, pinnedContext }));
+    }
+
+    function loadSession() {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      try {
+        const data = JSON.parse(raw);
+        if (Array.isArray(data)) {
+          transcript = data;
+          pinnedContext = [];
+        } else if (data && typeof data === "object") {
+          transcript = Array.isArray(data.transcript) ? data.transcript : [];
+          pinnedContext = Array.isArray(data.pinnedContext) ? data.pinnedContext : [];
+        } else {
+          return false;
+        }
+        renderTranscript();
+        renderMemoryInspector();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function renderTranscript() {
+      chat.innerHTML = "";
+      for (const item of transcript) addBubble(item.kind, item.title, item.body, item.meta, false);
+    }
+
+    function addBubble(kind, title, body, meta = "", persist = true) {
+      const el = document.createElement("div");
+      el.className = `bubble ${kind}`;
+      el.innerHTML = `<strong>${escapeHtml(title)}</strong><div>${body}</div>${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}`;
+      chat.appendChild(el);
+      chat.scrollTop = chat.scrollHeight;
+      if (persist) {
+        transcript.push({ kind, title, body, meta });
+        saveSession();
+      }
+    }
+
+    function train(announce = true) {
+      const selected = (seedCorpus.value || "").trim() || CORPORA[corpusSelect.value]?.text || "";
+      const corpus = (customCorpus.value || "").trim() || selected;
+      if (!corpus) return;
+      agent = new NonNeuralAgent({
+        order: Number(orderInput.value) || 9,
+        temperature: Number(tempInput.value) || 0.9,
+        maxLength: Number(maxLenInput.value) || 280,
+        topK: Number(topKInput.value) || 3,
+      });
+      const info = agent.learn(corpus);
+      status.textContent = `Status: trained | chars=${info.chars} | transitions=${info.transitions} | chunks=${info.chunks}`;
+      renderMemoryInspector();
+      if (announce) addBubble("agent", "System", `Agent trained. Top keywords: ${escapeHtml(info.keywords.join(", "))}`);
+    }
+
+    function send() {
+      const q = queryInput.value.trim();
+      if (!q) return;
+      addBubble("user", "You", escapeHtml(q));
+      queryInput.value = "";
+      const effectiveQuery = pinnedContext.length ? `${pinnedContext.join(" ")} ${q}` : q;
+      try {
+        const result = agent.think(effectiveQuery, {
+          order: Number(orderInput.value) || 9,
+          temperature: Number(tempInput.value) || 0.9,
+          maxLength: Number(maxLenInput.value) || 280,
+          topK: Number(topKInput.value) || 3,
+        });
+        const retrieved = (result.retrieved || []).map((r, i) => `${i + 1}. ${escapeHtml(r.slice(0, 130))}...`).join("<br>");
+        const intent = result.intent?.taskType || result.stats?.taskType || "analysis";
+        const verification = result.verification?.ok ? "verified" : `review: ${(result.verification?.issues || []).join("; ") || "unsupported"}`;
+        const plan = result.plan?.steps?.map((step) => step.action).join(" -> ") || "parse -> retrieve -> reason -> rank -> verify";
+        addBubble(
+          "agent",
+          "NonNeuralAgent",
+          `${escapeHtml(result.answer)}<hr><strong>Retrieved:</strong><br>${retrieved || "none"}<br><strong>Intent:</strong> ${escapeHtml(intent)}<br><strong>Verification:</strong> ${escapeHtml(verification)}<br><strong>Plan:</strong> ${escapeHtml(plan)}`,
+          `order=${result.stats.order} temp=${result.stats.temperature} len=${result.stats.answerLength} facts=${result.stats.facts}`
+        );
+      } catch (err) {
+        addBubble("agent", "System", escapeHtml(String(err?.message || err)));
+      }
+    }
+
+    function exportSession() {
+      const payload = JSON.stringify({ transcript, pinnedContext }, null, 2);
+      const blob = new Blob([payload], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nonneuralx-session.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importSessionFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(String(reader.result || "[]"));
+          if (Array.isArray(data)) {
+            transcript = data;
+            pinnedContext = [];
+          } else if (data && typeof data === "object") {
+            transcript = Array.isArray(data.transcript) ? data.transcript : [];
+            pinnedContext = Array.isArray(data.pinnedContext) ? data.pinnedContext : [];
+          } else {
+            throw new Error("Session file must contain transcript data.");
+          }
+          saveSession();
+          renderTranscript();
+          renderMemoryInspector();
+          addBubble("agent", "System", "Session imported successfully.");
+        } catch (err) {
+          addBubble("agent", "System", `Import failed: ${escapeHtml(String(err?.message || err))}`);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    loadSeedBtn.addEventListener("click", loadSeedPreset);
+    corpusSelect.addEventListener("change", loadSeedPreset);
+    trainBtn.addEventListener("click", train);
+    sendBtn.addEventListener("click", send);
+    clearBtn.addEventListener("click", () => { transcript = []; chat.innerHTML = ""; saveSession(); });
+    clearPinnedBtn.addEventListener("click", clearPinnedContext);
+    exportBtn.addEventListener("click", exportSession);
+    importBtn.addEventListener("click", () => importFile.click());
+    importFile.addEventListener("change", () => importSessionFile(importFile.files?.[0]));
+    resetBtn.addEventListener("click", () => { localStorage.removeItem(STORAGE_KEY); transcript = []; pinnedContext = []; chat.innerHTML = ""; renderMemoryInspector(); });
+    queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+
+    loadSeedPreset();
+    loadSession();
+    train(false);
+    renderMemoryInspector();
+  </script>
+</body>
+</html>

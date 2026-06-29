@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NonNeuralX Chat Playground</title>
+    <style>
+      :root {
+        --bg: #f7f5ef;
+        --panel: #fffdf8;
+        --ink: #1e2a32;
+        --accent: #d06a2d;
+        --accent-2: #2a8f9d;
+        --line: #e7dfcf;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at 0 0, #fff7dd 0, var(--bg) 45%);
+      }
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 14px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.2rem;
+        letter-spacing: 0.02em;
+      }
+      label { font-size: 0.85rem; display: block; margin: 10px 0 6px; }
+      select, input, textarea, button {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 9px 10px;
+        font: inherit;
+        background: #fff;
+      }
+      textarea { min-height: 120px; resize: vertical; }
+      button {
+        cursor: pointer;
+        background: linear-gradient(90deg, var(--accent), #e88a4f);
+        color: white;
+        border: none;
+        margin-top: 10px;
+      }
+      button.secondary {
+        background: linear-gradient(90deg, var(--accent-2), #57b4c1);
+      }
+      .chat {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 70vh;
+      }
+      .bubble {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px;
+        background: #fff;
+        animation: fadeIn 180ms ease;
+      }
+      .user { border-left: 4px solid var(--accent-2); }
+      .agent { border-left: 4px solid var(--accent); }
+      .meta { font-size: 0.78rem; opacity: 0.75; margin-top: 6px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .row.actions { grid-template-columns: 1fr 1fr 1fr; }
+      .file-input { display: none; }
+      .inspector {
+        margin-top: 12px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
+      }
+      .inspector h2 {
+        margin: 0 0 6px;
+        font-size: 1rem;
+      }
+      .inspector .statline {
+        font-size: 0.84rem;
+        margin: 2px 0;
+      }
+      .inspector ul {
+        margin: 8px 0 0;
+        padding-left: 18px;
+        max-height: 180px;
+        overflow: auto;
+      }
+      .inspector li {
+        margin: 3px 0;
+        font-size: 0.84rem;
+        line-height: 1.3;
+      }
+      .inspector .context-box {
+        margin-top: 8px;
+        padding: 8px;
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        background: #fff;
+        max-height: 160px;
+        overflow: auto;
+        font-size: 0.84rem;
+      }
+      .inspector .context-box p {
+        margin: 0 0 6px;
+      }
+      .inspector-chip {
+        width: 100%;
+        text-align: left;
+        padding: 7px 9px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f8f4ea;
+        color: var(--ink);
+        cursor: pointer;
+      }
+      .inspector-chip:hover,
+      .inspector-chip:focus-visible {
+        background: #fff4df;
+        outline: none;
+      }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px);} to { opacity: 1; transform: none;} }
+      @media (max-width: 900px) {
+        .wrap { grid-template-columns: 1fr; }
+        .row.actions { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="panel">
+        <h1>NonNeuralX Playground</h1>
+        <p style="margin:0 0 8px; font-size: 0.9rem;">
+          Character Markov + hierarchical retrieval memory. No neural model.
+        </p>
+
+        <label for="corpusSelect">Seed corpus</label>
+        <select id="corpusSelect"></select>
+
+        <label for="seedCorpus">Seed corpus editor</label>
+        <textarea id="seedCorpus" placeholder="Loaded preset corpus will appear here..."></textarea>
+
+        <label for="customCorpus">Custom corpus (optional)</label>
+        <textarea id="customCorpus" placeholder="Paste your own text corpus..."></textarea>
+
+        <div class="row">
+          <div>
+            <label for="order">Order</label>
+            <input id="order" type="number" min="1" max="14" value="9" />
+          </div>
+          <div>
+            <label for="temp">Temperature</label>
+            <input id="temp" type="number" min="0.2" max="2" step="0.05" value="0.9" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="topK">Top K</label>
+            <input id="topK" type="number" min="1" max="8" value="3" />
+          </div>
+          <div>
+            <label for="maxLen">Max length</label>
+            <input id="maxLen" type="number" min="50" max="900" value="280" />
+          </div>
+        </div>
+
+        <div class="row actions">
+          <button id="loadSeedBtn" class="secondary">Load Preset</button>
+          <button id="trainBtn">Train Agent</button>
+          <button id="clearBtn" class="secondary">Clear Chat</button>
+        </div>
+
+        <div class="row actions">
+          <button id="exportBtn" class="secondary">Export JSON</button>
+          <button id="importBtn" class="secondary">Import JSON</button>
+          <button id="resetBtn" class="secondary">Reset Saved Chat</button>
+          <input id="importFile" class="file-input" type="file" accept="application/json" />
+          <div></div>
+        </div>
+
+        <div class="inspector">
+          <h2>Memory Inspector</h2>
+          <div id="memoryStatus" class="statline">Not trained yet</div>
+          <div id="memoryStats" class="statline"></div>
+          <label>Top keywords</label>
+          <ul id="keywordList"></ul>
+          <label>Short-term chunks</label>
+          <ul id="shortTermList"></ul>
+          <label>Pinned context</label>
+          <div class="context-box" id="pinnedContextBox">No pinned context.</div>
+          <div class="row actions" style="margin-top:8px;">
+            <button id="clearPinnedBtn" class="secondary">Clear Pinned Context</button>
+            <div></div>
+            <div></div>
+          </div>
+        </div>
+
+        <div id="status" class="meta" style="margin-top:10px;">Status: not trained</div>
+      </section>
+
+      <section class="panel">
+        <div class="chat" id="chat"></div>
+        <div style="display:flex; gap:8px; margin-top: 10px;">
+          <input id="queryInput" placeholder="Ask something..." />
+          <button id="sendBtn" style="width: 160px; margin-top:0;">Send</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module">
+      import { CORPORA, NonNeuralAgent } from "./src/index.js";
+
+      const STORAGE_KEY = "nonneuralx-chat:session:v2";
+
+      const corpusSelect = document.getElementById("corpusSelect");
+      const seedCorpus = document.getElementById("seedCorpus");
+      const customCorpus = document.getElementById("customCorpus");
+      const orderInput = document.getElementById("order");
+      const tempInput = document.getElementById("temp");
+      const topKInput = document.getElementById("topK");
+      const maxLenInput = document.getElementById("maxLen");
+      const loadSeedBtn = document.getElementById("loadSeedBtn");
+      const trainBtn = document.getElementById("trainBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const exportBtn = document.getElementById("exportBtn");
+      const importBtn = document.getElementById("importBtn");
+      const importFile = document.getElementById("importFile");
+      const resetBtn = document.getElementById("resetBtn");
+      const memoryStatus = document.getElementById("memoryStatus");
+      const memoryStats = document.getElementById("memoryStats");
+      const keywordList = document.getElementById("keywordList");
+      const shortTermList = document.getElementById("shortTermList");
+      const pinnedContextBox = document.getElementById("pinnedContextBox");
+      const clearPinnedBtn = document.getElementById("clearPinnedBtn");
+      const sendBtn = document.getElementById("sendBtn");
+      const queryInput = document.getElementById("queryInput");
+      const chat = document.getElementById("chat");
+      const status = document.getElementById("status");
+
+      Object.entries(CORPORA).forEach(([key, v]) => {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = v.label;
+        corpusSelect.appendChild(opt);
+      });
+
+      function loadSeedPreset() {
+        seedCorpus.value = CORPORA[corpusSelect.value]?.text || "";
+      }
+
+      let agent = new NonNeuralAgent({ order: 9, temperature: 0.9 });
+      let transcript = [];
+      let pinnedContext = [];
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function renderMemoryInspector() {
+        if (!agent?.trained) {
+          memoryStatus.textContent = "Not trained yet";
+          memoryStats.textContent = "";
+          keywordList.innerHTML = "";
+          shortTermList.innerHTML = "";
+          pinnedContextBox.textContent = pinnedContext.length ? pinnedContext.map((c) => c.slice(0, 90)).join(" \u2022 ") : "No pinned context.";
+          return;
+        }
+
+        const stats = agent.stats;
+        memoryStatus.textContent = `Trained: ${stats.trained ? "yes" : "no"}`;
+        memoryStats.textContent = `Long-term chunks: ${stats.chunks.toLocaleString()} | Short-term chunks: ${agent.memory.shortTerm.length.toLocaleString()} | Transitions: ${stats.transitions.toLocaleString()}`;
+
+        keywordList.innerHTML = stats.keywords
+          .map((kw) => `<li><button class="inspector-chip" data-kind="keyword" data-value="${encodeURIComponent(kw)}">${escapeHtml(kw)}</button></li>`)
+          .join("");
+
+        const shortChunks = agent.memory.shortTerm.slice(-6).reverse();
+        shortTermList.innerHTML = shortChunks.length
+          ? shortChunks.map((chunk) => `<li><button class="inspector-chip" data-kind="chunk" data-value="${encodeURIComponent(chunk)}">${escapeHtml(chunk.slice(0, 180))}${chunk.length > 180 ? "…" : ""}</button></li>`).join("")
+          : "<li>No short-term chunks yet.</li>";
+
+        pinnedContextBox.textContent = pinnedContext.length
+          ? pinnedContext.map((chunk) => chunk.slice(0, 90)).join(" • ")
+          : "No pinned context.";
+
+        document.querySelectorAll(".inspector-chip").forEach((button) => {
+          button.addEventListener("click", () => {
+            const value = decodeURIComponent(button.dataset.value || "");
+            if (button.dataset.kind === "chunk") {
+              pinContext(value);
+            } else {
+              primeQuery(value, true);
+            }
+          });
+        });
+      }
+
+      function pinContext(text) {
+        const value = String(text || "").trim();
+        if (!value) return;
+        if (!pinnedContext.includes(value)) {
+          pinnedContext.push(value);
+        }
+        renderMemoryInspector();
+      }
+
+      function clearPinnedContext() {
+        pinnedContext = [];
+        renderMemoryInspector();
+      }
+
+      function primeQuery(text, append = false) {
+        const value = String(text || "").trim();
+        if (!value) return;
+
+        if (append && queryInput.value.trim()) {
+          queryInput.value = `${queryInput.value.trim()} ${value}`;
+        } else {
+          queryInput.value = value;
+        }
+        queryInput.focus();
+        queryInput.setSelectionRange(queryInput.value.length, queryInput.value.length);
+      }
+
+      function saveTranscript() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ transcript, pinnedContext }));
+      }
+
+      function loadSession() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        try {
+          const data = JSON.parse(raw);
+          if (Array.isArray(data)) {
+            transcript = data;
+            pinnedContext = [];
+          } else if (data && typeof data === "object") {
+            transcript = Array.isArray(data.transcript) ? data.transcript : [];
+            pinnedContext = Array.isArray(data.pinnedContext) ? data.pinnedContext : [];
+          } else {
+            return false;
+          }
+          renderTranscript();
+          renderMemoryInspector();
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      function renderTranscript() {
+        chat.innerHTML = "";
+        for (const item of transcript) {
+          addBubble(item.kind, item.title, item.body, item.meta, false);
+        }
+      }
+
+      function addBubble(kind, title, body, meta = "", persist = true) {
+        const el = document.createElement("div");
+        el.className = `bubble ${kind}`;
+        el.innerHTML = `<strong>${escapeHtml(title)}</strong><div>${body}</div>${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}`;
+        chat.appendChild(el);
+        chat.scrollTop = chat.scrollHeight;
+
+        if (persist) {
+          transcript.push({ kind, title, body, meta });
+          saveTranscript();
+        }
+      }
+
+      function train(announce = true) {
+        const selected = (seedCorpus.value || "").trim() || CORPORA[corpusSelect.value]?.text || "";
+        const corpus = (customCorpus.value || "").trim() || selected;
+        if (!corpus) return;
+
+        agent = new NonNeuralAgent({
+          order: Number(orderInput.value) || 9,
+          temperature: Number(tempInput.value) || 0.9,
+          maxLength: Number(maxLenInput.value) || 280,
+          topK: Number(topKInput.value) || 3,
+        });
+
+        const info = agent.learn(corpus);
+        status.textContent = `Status: trained | chars=${info.chars} | transitions=${info.transitions} | chunks=${info.chunks}`;
+        renderMemoryInspector();
+        if (announce) {
+          addBubble("agent", "System", `Agent trained. Top keywords: ${escapeHtml(info.keywords.join(", "))}`);
+        }
+      }
+
+      function send() {
+        const q = queryInput.value.trim();
+        if (!q) return;
+
+        addBubble("user", "You", escapeHtml(q));
+        queryInput.value = "";
+
+        const effectiveQuery = pinnedContext.length
+          ? `${pinnedContext.join(" ")} ${q}`
+          : q;
+
+        try {
+          const result = agent.think(effectiveQuery, {
+            order: Number(orderInput.value) || 9,
+            temperature: Number(tempInput.value) || 0.9,
+            maxLength: Number(maxLenInput.value) || 280,
+            topK: Number(topKInput.value) || 3,
+          });
+
+          const retrieved = (result.retrieved || []).map((r, i) => `${i + 1}. ${escapeHtml(r.slice(0, 130))}...`).join("<br>");
+          addBubble(
+            "agent",
+            "NonNeuralAgent",
+            `${escapeHtml(result.answer)}<hr><strong>Retrieved:</strong><br>${retrieved || "none"}`,
+            `order=${result.stats.order} temp=${result.stats.temperature} len=${result.stats.answerLength}`
+          );
+        } catch (err) {
+          addBubble("agent", "System", escapeHtml(String(err?.message || err)));
+        }
+      }
+
+      function exportTranscript() {
+        const payload = JSON.stringify({ transcript, pinnedContext }, null, 2);
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "nonneuralx-transcript.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function importTranscriptFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = JSON.parse(String(reader.result || "[]"));
+            if (Array.isArray(data)) {
+              transcript = data;
+              pinnedContext = [];
+            } else if (data && typeof data === "object") {
+              transcript = Array.isArray(data.transcript) ? data.transcript : [];
+              pinnedContext = Array.isArray(data.pinnedContext) ? data.pinnedContext : [];
+            } else {
+              throw new Error("Session file must contain transcript data.");
+            }
+            saveTranscript();
+            renderTranscript();
+            renderMemoryInspector();
+            addBubble("agent", "System", "Transcript imported successfully.");
+          } catch (err) {
+            addBubble("agent", "System", `Import failed: ${escapeHtml(String(err?.message || err))}`);
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      loadSeedBtn.addEventListener("click", () => {
+        loadSeedPreset();
+      });
+      corpusSelect.addEventListener("change", () => {
+        loadSeedPreset();
+      });
+      trainBtn.addEventListener("click", train);
+      sendBtn.addEventListener("click", send);
+      clearBtn.addEventListener("click", () => {
+        transcript = [];
+        chat.innerHTML = "";
+        saveTranscript();
+      });
+      clearPinnedBtn.addEventListener("click", clearPinnedContext);
+      exportBtn.addEventListener("click", exportTranscript);
+      importBtn.addEventListener("click", () => importFile.click());
+      importFile.addEventListener("change", () => importTranscriptFile(importFile.files?.[0]));
+      resetBtn.addEventListener("click", () => {
+        localStorage.removeItem(STORAGE_KEY);
+        transcript = [];
+        pinnedContext = [];
+        chat.innerHTML = "";
+        renderMemoryInspector();
+      });
+      queryInput.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+
+      loadSeedPreset();
+      loadSession();
+      train(false);
+      renderMemoryInspector();
+    </script>
+  </body>
+</html>

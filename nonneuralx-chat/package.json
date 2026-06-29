@@ -1,0 +1,13 @@
+{
+  "name": "nonneuralx-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "npx http-server public -p 3000 -c-1",
+    "demo": "node example.js"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
