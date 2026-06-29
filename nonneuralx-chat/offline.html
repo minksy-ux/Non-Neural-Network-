@@ -453,9 +453,12 @@
         const raw = String(rawText || "");
         const lines = raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
         const taskLine = lines.find((line) => /^tasks?\s*:/i.test(line)) || raw.match(/tasks?\s*:\s*([^\n]+)/i)?.[0] || "";
+        const resourceLine = lines.find((line) => /^resources?\s*:/i.test(line)) || raw.match(/resources?\s*:\s*([^\n]+)/i)?.[0] || "";
         const constraintLine = lines.find((line) => /^constraints?\s*:/i.test(line)) || raw.match(/constraints?\s*:\s*([^\n]+)/i)?.[0] || "";
-        const ruleLines = lines.filter((line) => !/^tasks?\s*:/i.test(line)).map((line) => line.replace(/^constraints?\s*:/i, "").trim());
-        const tasks = this._parseTaskList(taskLine.replace(/^tasks?\s*:/i, ""));
+        const ruleLines = lines.filter((line) => !/^tasks?\s*:/i.test(line) && !/^resources?\s*:/i.test(line)).map((line) => line.replace(/^constraints?\s*:/i, "").trim());
+        const taskSpecs = this._parseTaskList(taskLine.replace(/^tasks?\s*:/i, ""));
+        const tasks = taskSpecs.map((task) => task.name);
+        const resources = this._parseResourceList(resourceLine.replace(/^resources?\s*:/i, ""));
         const rawRuleText = [constraintLine.replace(/^constraints?\s*:/i, ""), ...ruleLines].map((part) => part.trim()).filter(Boolean).filter((part, index, list) => list.indexOf(part) === index).join("; ");
         const rules = this._parseDslRules(rawRuleText);
         if (!tasks.length && !rules.length) return null;
@@ -464,11 +467,32 @@
           if (rule.from) derivedTasks.push(rule.from);
           if (rule.to) derivedTasks.push(rule.to);
         }
-        return { tasks: uniqueBy([...tasks, ...derivedTasks].filter(Boolean), (value) => value.toLowerCase()), rules, raw: rawRuleText };
+        return { tasks: uniqueBy([...tasks, ...derivedTasks].filter(Boolean), (value) => value.toLowerCase()), taskSpecs, resources, rules, raw: rawRuleText };
       }
 
       _parseTaskList(text) {
-        return uniqueBy(String(text || "").split(/[,|]/).map((item) => normalizeText(item.replace(/^[-*]\s*/, ""))).filter(Boolean), (value) => value.toLowerCase());
+        return uniqueBy(String(text || "").split(/[,|]/).map((item) => this._parseTaskSpec(item)).filter((value) => value?.name), (value) => value.name.toLowerCase());
+      }
+
+      _parseTaskSpec(text) {
+        const raw = normalizeText(String(text || "").replace(/^[-*]\s*/, ""));
+        if (!raw) return null;
+        const match = raw.match(/^([^([\]]+?)(?:\((\d+)\))?(?:\[([^\]]+)\])?$/);
+        if (!match) return { name: raw, duration: 1, resource: null };
+        return { name: normalizeText(match[1]), duration: Math.max(1, Number(match[2] || 1)), resource: normalizeText(match[3] || "") || null };
+      }
+
+      _parseResourceList(text) {
+        const resources = {};
+        const parts = String(text || "").split(/[,|]/).map((item) => normalizeText(item)).filter(Boolean);
+        for (const part of parts) {
+          const match = part.match(/^([^=]+?)\s*=\s*(\d+)$/);
+          if (!match) continue;
+          const name = normalizeText(match[1]);
+          const capacity = Math.max(1, Number(match[2] || 1));
+          resources[name] = capacity;
+        }
+        return resources;
       }
 
       _parseDslRules(text) {
@@ -590,17 +614,21 @@
     }
 
     class ConstraintSolver {
-      solve(items, relations = []) {
+      solve(items, relations = [], options = {}) {
         const nodes = uniqueBy(items.map((item) => normalizeText(item)).filter(Boolean), (value) => value.toLowerCase());
         const index = new Map(nodes.map((node, position) => [node.toLowerCase(), position]));
         const edges = new Map(nodes.map((node) => [node, new Set()]));
         const indegree = new Map(nodes.map((node) => [node, 0]));
         const conflicts = [];
+        const predecessorMap = new Map(nodes.map((node) => [node, new Set()]));
         for (const relation of relations) {
           const from = this._resolve(relation.from, index, nodes);
           const to = this._resolve(relation.to, index, nodes);
           if (!from || !to) { conflicts.push(`unresolved relation: ${relation.from} ${relation.relation} ${relation.to}`); continue; }
-          if (relation.relation === "before") this._edge(from, to, edges, indegree); else if (relation.relation === "after") this._edge(to, from, edges, indegree); else if (relation.relation === "depends_on" || relation.relation === "requires") this._edge(to, from, edges, indegree); else if (relation.relation === "mutex") conflicts.push(`mutex violation: ${from} ! ${to}`);
+          if (relation.relation === "before") { this._edge(from, to, edges, indegree); predecessorMap.get(to)?.add(from); }
+          else if (relation.relation === "after") { this._edge(to, from, edges, indegree); predecessorMap.get(from)?.add(to); }
+          else if (relation.relation === "depends_on" || relation.relation === "requires") { this._edge(to, from, edges, indegree); predecessorMap.get(from)?.add(to); }
+          else if (relation.relation === "mutex") conflicts.push(`mutex violation: ${from} ! ${to}`);
         }
         const queue = nodes.filter((node) => indegree.get(node) === 0).sort((a, b) => a.localeCompare(b));
         const ordered = [];
@@ -617,7 +645,9 @@
           conflicts.push("constraint cycle detected");
           return { ok: false, ordered, conflicts };
         }
-        return { ok: conflicts.length === 0, ordered, conflicts };
+        const schedule = this._schedule(ordered, predecessorMap, options);
+        conflicts.push(...schedule.conflicts);
+        return { ok: conflicts.length === 0, ordered, conflicts, schedule: schedule.items, makespan: schedule.makespan };
       }
       _resolve(value, index, nodes) {
         const normalized = normalizeText(value);
@@ -626,6 +656,44 @@
         return nodes.find((node) => node.toLowerCase().includes(normalized.toLowerCase())) || null;
       }
       _edge(from, to, edges, indegree) { if (!edges.has(from)) edges.set(from, new Set()); if (!edges.get(from).has(to)) { edges.get(from).add(to); indegree.set(to, (indegree.get(to) || 0) + 1); } }
+      _schedule(ordered, predecessorMap, options = {}) {
+        const taskSpecs = options.taskSpecs || [];
+        const resources = options.resources || {};
+        const conflicts = [];
+        const specMap = new Map(taskSpecs.map((task) => [task.name.toLowerCase(), task]));
+        const allocations = new Map();
+        const scheduled = new Map();
+        for (const taskName of ordered) {
+          const spec = specMap.get(taskName.toLowerCase()) || { name: taskName, duration: 1, resource: null };
+          const duration = Math.max(1, Number(spec.duration || 1));
+          const resource = spec.resource || null;
+          const predecessors = [...(predecessorMap.get(taskName) || [])];
+          let start = predecessors.reduce((maxEnd, predecessor) => { const scheduledPred = scheduled.get(predecessor); return Math.max(maxEnd, scheduledPred ? scheduledPred.end : 0); }, 0);
+          if (resource) {
+            const capacity = Math.max(1, Number(resources[resource] || 1));
+            if (!allocations.has(resource)) allocations.set(resource, []);
+            start = this._nextAvailableStart(start, duration, allocations.get(resource), capacity);
+          }
+          const item = { task: taskName, duration, resource, start, end: start + duration };
+          scheduled.set(taskName, item);
+          if (resource) allocations.get(resource).push(item);
+        }
+        const items = ordered.map((taskName) => scheduled.get(taskName)).filter(Boolean);
+        const makespan = items.reduce((maxEnd, item) => Math.max(maxEnd, item.end), 0);
+        return { items, makespan, conflicts };
+      }
+      _nextAvailableStart(start, duration, allocations, capacity) {
+        let candidate = start;
+        while (true) {
+          let exceeds = false;
+          for (let time = candidate; time < candidate + duration; time++) {
+            const concurrent = allocations.filter((item) => item.start <= time && item.end > time).length;
+            if (concurrent >= capacity) { exceeds = true; break; }
+          }
+          if (!exceeds) return candidate;
+          candidate += 1;
+        }
+      }
     }
 
     class PlannerExecutor {
@@ -644,9 +712,10 @@
         const reasoning = [];
         if (intent.taskType === "planner" && intent.relations.length) {
           const planItems = intent.dsl?.tasks?.length ? intent.dsl.tasks : intent.entities.length ? intent.entities : evidenceLines.slice(0, 6);
-          const solve = this.constraintSolver.solve(planItems, intent.relations);
+          const solve = this.constraintSolver.solve(planItems, intent.relations, { taskSpecs: intent.dsl?.taskSpecs || [], resources: intent.dsl?.resources || {} });
           reasoning.push(`constraint solver: ${solve.ok ? "consistent" : "conflict"}`);
           if (solve.ordered.length) reasoning.push(`order: ${solve.ordered.join(" -> ")}`);
+          if (solve.schedule?.length) reasoning.push(`makespan: ${solve.makespan}`);
           if (solve.conflicts.length) reasoning.push(...solve.conflicts);
           return { reasoning, conclusion: solve.ordered, facts, solver: solve };
         }
@@ -735,7 +804,7 @@
         if (intent.taskType !== "planner" || !reasoning.solver) return null;
         const ordered = reasoning.solver.ordered.map((task, index) => `[P${index + 1}] ${task}`);
         const status = reasoning.solver.ok ? "consistent" : `conflict: ${reasoning.solver.conflicts.join("; ")}`;
-        return { kind: "plan", answer: ["Answer:", `Plan status: ${status}`, ...ordered, `Rules: ${(intent.dsl?.rules || intent.relations).map((rule) => `${rule.from} ${rule.relation} ${rule.to}`).join(" | ")}`, `Query: ${intent.raw}`].join("\n"), evidenceIds: ["solver"], solverBacked: true, solver: reasoning.solver };
+        return { kind: "plan", answer: ["Answer:", `Plan status: ${status}`, ...ordered, ...(reasoning.solver.schedule?.length ? reasoning.solver.schedule.map((item) => `[S] ${item.task}: t=${item.start}->${item.end}${item.resource ? ` [${item.resource}]` : ""}`) : []), ...(Object.keys(intent.dsl?.resources || {}).length ? [`Resources: ${Object.entries(intent.dsl.resources).map(([name, cap]) => `${name}=${cap}`).join(", ")}`] : []), `Makespan: ${reasoning.solver.makespan ?? 0}`, `Rules: ${(intent.dsl?.rules || intent.relations).map((rule) => `${rule.from} ${rule.relation} ${rule.to}`).join(" | ")}`, `Query: ${intent.raw}`].join("\n"), evidenceIds: ["solver"], solverBacked: true, solver: reasoning.solver };
       }
       _buildGraphCandidate(intent, evidence, reasoning) { if (!reasoning.conclusion || !reasoning.conclusion.length) return null; return { kind: "graph", answer: [`Answer:`, ...reasoning.conclusion.map((item, index) => `[G${index + 1}] ${item}`), `Query: ${intent.raw}`].join("\n"), evidenceIds: evidence.slice(0, 3).map((item) => item.id) }; }
       _buildMarkovCandidate(intent, evidence, maxLength) { const context = evidence.map((item) => item.content || item.sentence || "").join(" ").slice(0, 600); const prompt = `Evidence: ${context} Question: ${intent.raw} Answer:`; return { kind: "generation", answer: this.markov.generateBest(prompt, maxLength, Math.max(4, this.topK + 4)), evidenceIds: evidence.slice(0, this.topK).map((item) => item.id), prompt }; }
