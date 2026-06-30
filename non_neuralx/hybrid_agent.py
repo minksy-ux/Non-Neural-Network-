@@ -52,10 +52,31 @@ class NonNeuralAgent:
     def _query_features(self, query: str) -> np.ndarray:
         lower = query.lower()
         words = re.findall(r"\b\w+\b", lower)
-        creative_hits = sum(token in lower for token in ["write", "poem", "story", "creative", "stylized", "reflect"])
-        reasoning_hits = sum(token in lower for token in ["why", "how", "explain", "reason", "logic", "because"])
-        code_hits = sum(token in lower for token in ["code", "bug", "function", "debug", "correctness", "edge case"])
-        unsafe_hits = sum(token in lower for token in ["weapon", "bomb", "malware", "harm", "attack", "steal"])
+        creative_hits = sum(
+            token in {"write", "poem", "story", "creative", "stylized", "reflect", "reflection"} for token in words
+        )
+        reasoning_hits = sum(token in {"why", "how", "explain", "reason", "logic", "because"} for token in words)
+        code_hits = sum(token in {"code", "bug", "function", "debug", "correctness", "edge", "case", "cases"} for token in words)
+        unsafe_hits = sum(
+            token
+            in {
+                "weapon",
+                "weapons",
+                "bomb",
+                "bombs",
+                "malware",
+                "harm",
+                "harmful",
+                "attack",
+                "attacks",
+                "steal",
+                "steals",
+                "stealing",
+                "password",
+                "passwords",
+            }
+            for token in words
+        )
         return np.array(
             [
                 len(words),
