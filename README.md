@@ -82,6 +82,14 @@ python3 -m pip install -r requirements.txt
 pip install -e .
 ```
 
+## Contributing
+
+Run this from a fresh clone to set up and execute tests in one command:
+
+```bash
+python3 -m pip install -r requirements.txt && pip install -e . && PYTHONDONTWRITEBYTECODE=1 pytest -q
+```
+
 ## Quick Start
 
 ```python

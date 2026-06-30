@@ -1,7 +1,10 @@
+import hashlib
 import math
+import os
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import networkx as nx
@@ -36,42 +39,99 @@ class VerifiedFact:
 class TorchEmbeddingEncoder:
     """Small torch embedding-bag encoder for lightweight text representations."""
 
-    def __init__(self, vocab_size: int = 4096, embedding_dim: int = 32, random_state: int = 42):
+    def __init__(
+        self,
+        vocab_size: int = 4096,
+        embedding_dim: int = 32,
+        random_state: int = 42,
+        cache_dir: Optional[str] = None,
+        use_disk_cache: bool = False,
+    ):
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         self.random_state = random_state
+        self._hash_key = str(random_state).encode("utf-8")
+        self.cache_dir = cache_dir
+        self.use_disk_cache = bool(use_disk_cache and cache_dir)
+        self._joblib = None
+        if self.use_disk_cache:
+            try:
+                import joblib as _joblib  # type: ignore
+
+                self._joblib = _joblib
+                os.makedirs(str(cache_dir), exist_ok=True)
+            except Exception:
+                self.use_disk_cache = False
         torch.manual_seed(random_state)
         self.model = nn.EmbeddingBag(vocab_size, embedding_dim, mode="mean")
         nn.init.xavier_uniform_(self.model.weight)
         self.model.eval()
 
+    def _token_to_index(self, token: str) -> int:
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8, key=self._hash_key).digest()
+        return int.from_bytes(digest, byteorder="little", signed=False) % self.vocab_size
+
     def _indices(self, text: str) -> torch.Tensor:
         tokens = _tokenize(text)
         if not tokens:
             return torch.tensor([0], dtype=torch.long)
-        return torch.tensor([hash(token) % self.vocab_size for token in tokens], dtype=torch.long)
+        return torch.tensor([self._token_to_index(token) for token in tokens], dtype=torch.long)
+
+    @lru_cache(maxsize=4096)
+    def _encode_single_cached(self, text: str) -> Tuple[float, ...]:
+        indices = self._indices(text)
+        offsets = torch.tensor([0], dtype=torch.long)
+        with torch.no_grad():
+            vec = self.model(indices, offsets).squeeze(0).cpu().numpy()
+        norm = np.linalg.norm(vec) + 1e-8
+        normalized = vec / norm
+        return tuple(float(x) for x in normalized)
+
+    def _disk_cache_path(self, text: str) -> str:
+        digest = hashlib.blake2b(text.encode("utf-8"), digest_size=16, key=self._hash_key).hexdigest()
+        return os.path.join(str(self.cache_dir), f"embedding_{self.vocab_size}_{self.embedding_dim}_{digest}.joblib")
+
+    def _encode_single(self, text: str) -> np.ndarray:
+        normalized = _normalize_text(text)
+        if self.use_disk_cache and self._joblib is not None:
+            path = self._disk_cache_path(normalized)
+            if os.path.exists(path):
+                return np.asarray(self._joblib.load(path), dtype=np.float32)
+            vec = np.asarray(self._encode_single_cached(normalized), dtype=np.float32)
+            self._joblib.dump(vec, path)
+            return vec
+        return np.asarray(self._encode_single_cached(normalized), dtype=np.float32)
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
         if isinstance(texts, str):
             texts = [texts]
-
-        vectors = []
-        with torch.no_grad():
-            for text in texts:
-                indices = self._indices(text)
-                offsets = torch.tensor([0], dtype=torch.long)
-                vec = self.model(indices, offsets).squeeze(0).cpu().numpy()
-                norm = np.linalg.norm(vec) + 1e-8
-                vectors.append(vec / norm)
-        return np.vstack(vectors)
+        if not texts:
+            return np.zeros((0, self.embedding_dim), dtype=np.float32)
+        return np.vstack([self._encode_single(text) for text in texts])
 
 
 class NetworkXSymbolicReasoner:
     """Rule-oriented graph reasoner with contradiction checks over a NetworkX graph."""
 
-    def __init__(self):
+    def __init__(self, enable_sympy_checks: bool = False):
         self.graph = nx.DiGraph()
         self.facts: List[VerifiedFact] = []
+        self.enable_sympy_checks = enable_sympy_checks
+        self._sympy_symbols = None
+        self._sympy_and = None
+        self._sympy_not = None
+        self._sympy_satisfiable = None
+        if enable_sympy_checks:
+            try:
+                from sympy import And, Not, symbols
+                from sympy.logic.inference import satisfiable
+
+                self._sympy_symbols = symbols
+                self._sympy_and = And
+                self._sympy_not = Not
+                self._sympy_satisfiable = satisfiable
+            except Exception:
+                self.enable_sympy_checks = False
 
     def fit(self, text: str) -> "NetworkXSymbolicReasoner":
         sentences = [segment.strip() for segment in re.split(r"[.!?]+", text) if segment.strip()]
@@ -167,6 +227,23 @@ class NetworkXSymbolicReasoner:
         for subject, objects in grouped.items():
             if len(objects) > 1:
                 contradictions.append(f"conflicting definitions for {subject}: {sorted(objects)}")
+
+        if self.enable_sympy_checks and self._sympy_symbols and self._sympy_satisfiable and self._sympy_and and self._sympy_not:
+            expressions = []
+            for fact in facts:
+                if fact.relation not in {"is", "are"}:
+                    continue
+                obj = fact.obj.strip()
+                negated = obj.startswith("not ")
+                base_obj = obj[4:] if negated else obj
+                symbol_name = re.sub(r"[^a-zA-Z0-9_]", "_", f"{fact.subject}_{base_obj}").strip("_")
+                if not symbol_name:
+                    continue
+                symbol = self._sympy_symbols(symbol_name)
+                expressions.append(self._sympy_not(symbol) if negated else symbol)
+
+            if expressions and self._sympy_satisfiable(self._sympy_and(*expressions)) is False:
+                contradictions.append("sympy detected logical inconsistency")
         return contradictions
 
 
@@ -400,10 +477,20 @@ class InterpretableDecisionEnsemble:
 class NeuralSymbolicHybridAgent:
     """Opt-in hybrid agent using torch embeddings, NetworkX reasoning, and constrained Markov generation."""
 
-    def __init__(self, random_state: int = 42):
-        self.encoder = TorchEmbeddingEncoder(random_state=random_state)
+    def __init__(
+        self,
+        random_state: int = 42,
+        cache_dir: Optional[str] = None,
+        use_disk_cache: bool = False,
+        enable_sympy_checks: bool = False,
+    ):
+        self.encoder = TorchEmbeddingEncoder(
+            random_state=random_state,
+            cache_dir=cache_dir,
+            use_disk_cache=use_disk_cache,
+        )
         self.memory = GraphSpectralMemory(self.encoder)
-        self.reasoner = NetworkXSymbolicReasoner()
+        self.reasoner = NetworkXSymbolicReasoner(enable_sympy_checks=enable_sympy_checks)
         self.markov = ConstrainedTokenMarkov()
         self.ensemble = InterpretableDecisionEnsemble(random_state=random_state).fit()
         self.learned = False

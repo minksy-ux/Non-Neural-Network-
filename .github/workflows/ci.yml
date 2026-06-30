@@ -29,7 +29,7 @@ jobs:
           pip install -e .
 
       - name: Run unit tests
-        run: python -m unittest discover -s tests -v
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q
 
       - name: Run benchmark smoke check
         run: python benchmark.py
