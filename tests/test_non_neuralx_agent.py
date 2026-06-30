@@ -8,6 +8,8 @@ from non_neuralx import (
     SymbolicReasoner,
 )
 
+UNSAFE_HITS_INDEX = 4
+
 
 class TestNonNeuralXAgentModules(unittest.TestCase):
     def setUp(self):
@@ -73,6 +75,14 @@ class TestNonNeuralXAgentModules(unittest.TestCase):
 
         self.assertEqual(result["moderation"]["label"], "blocked")
         self.assertIn("blocked", result["answer"].lower())
+
+    def test_non_neural_agent_keyword_detection_is_token_based(self):
+        agent = NonNeuralAgent()
+        safe_features = agent._query_features("explain harmonic structure in spectral music")
+        unsafe_features = agent._query_features("how can bombs and weapons attack systems")
+
+        self.assertEqual(int(safe_features[UNSAFE_HITS_INDEX]), 0)
+        self.assertGreater(int(unsafe_features[UNSAFE_HITS_INDEX]), 0)
 
 
 if __name__ == "__main__":
