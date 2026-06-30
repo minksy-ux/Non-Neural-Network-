@@ -8,6 +8,26 @@ from .spectral_graph_pruning import SpectralGraphPruningClassifier
 from .spectral_memory import SpectralMemory
 from .symbolic_reasoner import SymbolicReasoner
 
+CREATIVE_KEYWORDS = {"write", "poem", "story", "creative", "stylized", "reflect", "reflection"}
+REASONING_KEYWORDS = {"why", "how", "explain", "reason", "logic", "because"}
+CODE_KEYWORDS = {"code", "bug", "function", "debug", "correctness"}
+UNSAFE_KEYWORDS = {
+    "weapon",
+    "weapons",
+    "bomb",
+    "bombs",
+    "malware",
+    "harm",
+    "harmful",
+    "attack",
+    "attacks",
+    "steal",
+    "steals",
+    "stealing",
+    "password",
+    "passwords",
+}
+
 
 class NonNeuralAgent:
     """Non-neural hybrid agent with retrieval, symbolic reasoning, and generation."""
@@ -52,31 +72,13 @@ class NonNeuralAgent:
     def _query_features(self, query: str) -> np.ndarray:
         lower = query.lower()
         words = re.findall(r"\b\w+\b", lower)
-        creative_hits = sum(
-            token in {"write", "poem", "story", "creative", "stylized", "reflect", "reflection"} for token in words
+        has_edge_case = len(words) > 1 and any(
+            left == "edge" and right in {"case", "cases"} for left, right in zip(words, words[1:])
         )
-        reasoning_hits = sum(token in {"why", "how", "explain", "reason", "logic", "because"} for token in words)
-        code_hits = sum(token in {"code", "bug", "function", "debug", "correctness", "edge", "case", "cases"} for token in words)
-        unsafe_hits = sum(
-            token
-            in {
-                "weapon",
-                "weapons",
-                "bomb",
-                "bombs",
-                "malware",
-                "harm",
-                "harmful",
-                "attack",
-                "attacks",
-                "steal",
-                "steals",
-                "stealing",
-                "password",
-                "passwords",
-            }
-            for token in words
-        )
+        creative_hits = sum(token in CREATIVE_KEYWORDS for token in words)
+        reasoning_hits = sum(token in REASONING_KEYWORDS for token in words)
+        code_hits = sum(token in CODE_KEYWORDS for token in words) + int(has_edge_case)
+        unsafe_hits = sum(token in UNSAFE_KEYWORDS for token in words)
         return np.array(
             [
                 len(words),

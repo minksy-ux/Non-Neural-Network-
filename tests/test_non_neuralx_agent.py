@@ -8,6 +8,8 @@ from non_neuralx import (
     SymbolicReasoner,
 )
 
+UNSAFE_HITS_INDEX = 4
+
 
 class TestNonNeuralXAgentModules(unittest.TestCase):
     def setUp(self):
@@ -79,8 +81,8 @@ class TestNonNeuralXAgentModules(unittest.TestCase):
         safe_features = agent._query_features("explain harmonic structure in spectral music")
         unsafe_features = agent._query_features("how can bombs and weapons attack systems")
 
-        self.assertEqual(int(safe_features[4]), 0)
-        self.assertGreater(int(unsafe_features[4]), 0)
+        self.assertEqual(int(safe_features[UNSAFE_HITS_INDEX]), 0)
+        self.assertGreater(int(unsafe_features[UNSAFE_HITS_INDEX]), 0)
 
 
 if __name__ == "__main__":
