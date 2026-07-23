@@ -36,8 +36,8 @@ def plot_pruning_effect(model) -> None:
     plt.title("Spectral Graph Pruning Effect")
     plt.ylabel("Number of Edges")
     for bar in bars:
-        h = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, h + 5, f"{int(h)}", ha="center")
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height + 5, f"{int(height)}", ha="center")
     plt.tight_layout()
     plt.show()
 

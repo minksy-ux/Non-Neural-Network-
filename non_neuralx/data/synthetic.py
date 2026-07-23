@@ -1,6 +1,11 @@
 from typing import Tuple
 
 import numpy as np
+from numpy.typing import NDArray
+
+
+ArrayF = NDArray[np.float64]
+ArrayI = NDArray[np.int_]
 
 
 def create_synthetic_data(
@@ -8,8 +13,8 @@ def create_synthetic_data(
     n_features: int = 6,
     n_classes: int = 2,
     random_state: int = 42,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Create synthetic classification data."""
+) -> Tuple[ArrayF, ArrayI]:
+    """Create deterministic synthetic classification data."""
     rng = np.random.default_rng(random_state)
     X = rng.normal(size=(n_samples, n_features))
 
@@ -23,13 +28,3 @@ def create_synthetic_data(
         y = np.digitize(raw, bins)
 
     return X, y
-
-
-def accuracy_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    return float(np.mean(np.asarray(y_true) == np.asarray(y_pred)))
-
-
-def mean_squared_error(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    y_true = np.asarray(y_true, dtype=float)
-    y_pred = np.asarray(y_pred, dtype=float)
-    return float(np.mean((y_true - y_pred) ** 2))
