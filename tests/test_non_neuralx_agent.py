@@ -8,6 +8,7 @@ from non_neuralx import (
     SymbolicReasoner,
 )
 
+# _query_features returns [word_count, reasoning_hits, creative_hits, code_hits, unsafe_hits, question_count].
 UNSAFE_HITS_FEATURE_INDEX = 4
 
 
